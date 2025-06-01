@@ -1,4 +1,4 @@
-// src/components/TenantFormModal.jsx
+// frontend/src/components/TenantFormModal.jsx
 
 import React, { useState, useEffect, useRef } from "react";
 import {
@@ -23,9 +23,12 @@ import {
   FormHelperText,
   Heading,
   Image,
+  Flex,
+  Spinner,
+  Text,
 } from "@chakra-ui/react";
 
-// Example constant for US states.
+// Constant for US States.
 const US_STATES = [
   "Alabama",
   "Alaska",
@@ -77,60 +80,97 @@ const US_STATES = [
   "West Virginia",
   "Wisconsin",
   "Wyoming",
-  "District of Columbia",
+  "District of Columbia"
 ];
 
+// API base URL (configured in .env)
 const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const TenantFormModal = ({
   isOpen,
   onClose,
-  mode = "add", // either "add" or "edit"
+  mode = "add", // "add" or "edit"
   initialData = {},
-  onSubmit, // Callback that receives the final tenant record for further processing.
+  onSubmit, // Callback receiving the final tenant record
 }) => {
-  // Local state for tenant information.
+  // Tenant Information States
   const [name, setName] = useState("");
   const [domain, setDomain] = useState("");
   const [industry, setIndustry] = useState("");
   const [industryOther, setIndustryOther] = useState("");
-  const [subscriptionTier, setSubscriptionTier] = useState("");
-  // Logo file state.
+  
+  // Instead of the hard-coded subscriptionTier, we now use subscriptionId
+  const [subscriptionId, setSubscriptionId] = useState("");
+  
+  // Logo handling states
   const [logo, setLogo] = useState(null);
-  // For display purposes (preview URL).
   const [logoPreview, setLogoPreview] = useState("");
   const [companyWebsite, setCompanyWebsite] = useState("");
-
-  // Local state for billing information.
+  
+  // Billing Information States
   const [billingStreet, setBillingStreet] = useState("");
   const [billingCity, setBillingCity] = useState("");
   const [billingState, setBillingState] = useState("Virginia");
   const [billingZip, setBillingZip] = useState("");
   const [billingCountry, setBillingCountry] = useState("US");
   const [billingPhone, setBillingPhone] = useState("");
-
-  // Local state for MFA settings.
+  
+  // MFA settings
   const [mfaEnabled, setMfaEnabled] = useState(false);
   const [allowedMfa, setAllowedMfa] = useState([]);
-
-  // Local state for active status.
+  
+  // Active status state.
   const [isActive, setIsActive] = useState(true);
-
-  // Submitting state.
+  
+  // State for dynamic subscriptions (for the subscription dropdown)
+  const [subscriptions, setSubscriptions] = useState([]);
+  const [loadingSubscriptions, setLoadingSubscriptions] = useState(false);
+  
+  // For submission loading indication.
   const [submitting, setSubmitting] = useState(false);
-
-  // useRef used to ensure the form is initialized only once per modal open.
+  
+  // useRef to ensure form initialization happens only once per modal open
   const initializedRef = useRef(false);
 
-  // Effect to initialize form fields when the modal opens.
+  // Fetch available subscriptions when the modal is open.
+  useEffect(() => {
+    if (isOpen) {
+      const fetchSubscriptions = async () => {
+        setLoadingSubscriptions(true);
+        try {
+          // Retrieve the auth token from localStorage.
+          const token = localStorage.getItem("authToken");
+          const response = await fetch(`${API_BASE}/api/subscriptions`, {
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`,
+            },
+          });
+          if (!response.ok) {
+            throw new Error("Failed to fetch subscriptions");
+          }
+          const data = await response.json();
+          setSubscriptions(data);
+        } catch (error) {
+          console.error("Error fetching subscriptions:", error);
+        } finally {
+          setLoadingSubscriptions(false);
+        }
+      };
+      fetchSubscriptions();
+    }
+  }, [isOpen]);
+
+  // Initialize form fields when the modal is opened.
   useEffect(() => {
     if (isOpen && !initializedRef.current) {
-      if (mode === "edit" && initialData && Object.keys(initialData).length) {
-        // Pre-fill fields for edit mode.
+      if (mode === "edit" && initialData && Object.keys(initialData).length > 0) {
         setName(initialData.name || "");
         setDomain(initialData.domain || "");
         setIndustry(initialData.industry || "");
-        setSubscriptionTier(initialData.subscriptionTier || "");
+        setIndustryOther(initialData.industryOther || "");
+        // Pre-fill subscriptionId if a subscription is attached.
+        setSubscriptionId(initialData.subscription ? initialData.subscription.id : "");
         setCompanyWebsite(initialData.companyWebsite || "");
         setBillingStreet(initialData.billingStreet || "");
         setBillingCity(initialData.billingCity || "");
@@ -139,24 +179,18 @@ const TenantFormModal = ({
         setBillingCountry(initialData.billingCountry || "US");
         setBillingPhone(initialData.billingPhone || "");
         setMfaEnabled(initialData.mfaEnabled === true || initialData.mfaEnabled === "true");
-        setAllowedMfa(
-          Array.isArray(initialData.allowedMfa) ? initialData.allowedMfa : []
-        );
-        // For the logo, if a logo file is not updated, use existing logo URL as preview.
+        setAllowedMfa(Array.isArray(initialData.allowedMfa) ? initialData.allowedMfa : []);
+        // For logo, if not updated, show existing logo preview.
         setLogo(null);
         setLogoPreview(initialData.logoUrl || "");
-        setIsActive(
-          typeof initialData.isActive === "boolean" ? initialData.isActive : true
-        );
+        setIsActive(typeof initialData.isActive === "boolean" ? initialData.isActive : true);
       } else {
         // Reset fields for add mode.
         setName("");
         setDomain("");
         setIndustry("");
         setIndustryOther("");
-        setSubscriptionTier("");
-        setLogo(null);
-        setLogoPreview("");
+        setSubscriptionId("");
         setCompanyWebsite("");
         setBillingStreet("");
         setBillingCity("");
@@ -166,6 +200,8 @@ const TenantFormModal = ({
         setBillingPhone("");
         setMfaEnabled(false);
         setAllowedMfa([]);
+        setLogo(null);
+        setLogoPreview("");
         setIsActive(true);
       }
       initializedRef.current = true;
@@ -175,7 +211,7 @@ const TenantFormModal = ({
     }
   }, [isOpen, mode, initialData]);
 
-  // Handler for logo file selection. Generates a preview.
+  // Handler for logo file change (generates a preview).
   const handleLogoChange = (e) => {
     const file = e.target.files && e.target.files[0];
     if (file) {
@@ -187,9 +223,7 @@ const TenantFormModal = ({
     }
   };
 
-  // --- Updated: Logo Upload Using Existing Endpoint ---  
-  // Note: We update the URL so that it matches our backend route, which is mounted at "/api/upload" and defined as "/upload/:tenantId/logo"
-  // The full URL becomes: /api/upload/upload/:tenantId/logo
+  // Function to handle logo upload.
   const handleLogoUpload = async (tenantId) => {
     if (!logo) return null;
     const formData = new FormData();
@@ -197,14 +231,10 @@ const TenantFormModal = ({
     try {
       const response = await fetch(
         `${API_BASE}/api/upload/${tenantId}/logo`,
-        {
-          method: "POST",
-          body: formData,
-        }
+        { method: "POST", body: formData }
       );
       const data = await response.json();
-      if (!response.ok)
-        throw new Error(data.error || "Logo upload failed");
+      if (!response.ok) throw new Error(data.error || "Logo upload failed");
       console.log("[DEBUG] Logo uploaded. URL:", data.logoUrl);
       return data.logoUrl;
     } catch (error) {
@@ -219,16 +249,13 @@ const TenantFormModal = ({
     e.preventDefault();
     if (submitting) return;
     setSubmitting(true);
-
-    // Build the payload object.
-    const normalizedName = name.trim();
-    const normalizedDomain = domain.trim();
-    const finalIndustry = industry === "Other" ? industryOther.trim() : industry.trim();
+    // Build the payload.
     const payload = {
-      name: normalizedName,
-      domain: normalizedDomain,
-      industry: finalIndustry,
-      subscriptionTier: subscriptionTier.trim(),
+      name: name.trim(),
+      domain: domain.trim(),
+      industry: industry === "Other" ? industryOther.trim() : industry.trim(),
+      // Use subscriptionId instead of hard-coded tier.
+      subscriptionId: subscriptionId,
       companyWebsite: companyWebsite.trim(),
       billingStreet: billingStreet.trim(),
       billingCity: billingCity.trim(),
@@ -240,10 +267,8 @@ const TenantFormModal = ({
       allowedMfa,
       isActive,
     };
-
-    console.log("DEBUG: Mode:", mode, " Payload:", payload);
+    console.log("DEBUG: Mode:", mode, "Payload:", payload);
     const url = mode === "add" ? "/api/tenants" : `/api/tenants/${initialData.id}`;
-
     try {
       const response = await fetch(url, {
         method: mode === "add" ? "POST" : "PUT",
@@ -258,15 +283,13 @@ const TenantFormModal = ({
         );
       }
       let tenantRecord = await response.json();
-
-      // If a new logo file was selected, upload it using the updated endpoint.
+      // If a logo file was selected, upload it.
       if (logo) {
         const uploadedLogoUrl = await handleLogoUpload(tenantRecord.id);
         if (uploadedLogoUrl) {
           tenantRecord.logoUrl = uploadedLogoUrl;
         }
       }
-
       onSubmit(tenantRecord);
       onClose();
     } catch (error) {
@@ -340,18 +363,28 @@ const TenantFormModal = ({
                     />
                   </FormControl>
                 )}
+                {/* Updated Subscription Field using dynamic fetch */}
                 <FormControl isRequired mt={4}>
-                  <FormLabel>Subscription Tier</FormLabel>
-                  <Select
-                    name="subscriptionTier"
-                    placeholder="Select tier"
-                    value={subscriptionTier}
-                    onChange={(e) => setSubscriptionTier(e.target.value)}
-                  >
-                    <option value="Free">Free</option>
-                    <option value="Pro">Pro</option>
-                    <option value="Enterprise">Enterprise</option>
-                  </Select>
+                  <FormLabel>Subscription</FormLabel>
+                  {loadingSubscriptions ? (
+                    <Flex align="center">
+                      <Spinner size="sm" mr={2} />
+                      <Text>Loading subscriptions...</Text>
+                    </Flex>
+                  ) : (
+                    <Select
+                      name="subscriptionId"
+                      placeholder="Select Subscription"
+                      value={subscriptionId}
+                      onChange={(e) => setSubscriptionId(e.target.value)}
+                    >
+                      {subscriptions.map((sub) => (
+                        <option key={sub.id} value={sub.id}>
+                          {sub.subscriptionTier ? sub.subscriptionTier : sub.name}
+                        </option>
+                      ))}
+                    </Select>
+                  )}
                 </FormControl>
                 {/* Logo Upload and Preview */}
                 <FormControl mt={4}>
@@ -384,7 +417,6 @@ const TenantFormModal = ({
                   />
                 </FormControl>
               </Box>
-
               {/* Right Column: Billing Information */}
               <Box>
                 <FormControl isRequired>
@@ -458,9 +490,14 @@ const TenantFormModal = ({
                 </FormControl>
               </Box>
             </SimpleGrid>
-
             {/* MFA Settings Section */}
-            <Box p={4} borderWidth="1px" borderColor="gray.200" borderRadius="md" mt={6}>
+            <Box
+              p={4}
+              borderWidth="1px"
+              borderColor="gray.200"
+              borderRadius="md"
+              mt={6}
+            >
               <Heading size="sm" mb={3}>
                 MFA Settings
               </Heading>
@@ -476,7 +513,11 @@ const TenantFormModal = ({
               {mfaEnabled && (
                 <FormControl mt={4}>
                   <FormLabel>Select Allowed MFA</FormLabel>
-                  <CheckboxGroup colorScheme="blue" value={allowedMfa} onChange={setAllowedMfa}>
+                  <CheckboxGroup
+                    colorScheme="blue"
+                    value={allowedMfa}
+                    onChange={setAllowedMfa}
+                  >
                     <Stack direction="row">
                       <Checkbox value="EMAIL">EMAIL</Checkbox>
                       <Checkbox value="SMS">SMS</Checkbox>

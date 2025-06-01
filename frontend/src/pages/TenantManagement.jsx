@@ -1,4 +1,4 @@
-// src/pages/Tenants.jsx
+// frontend/src/pages/TenantManagement.jsx
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
@@ -57,13 +57,12 @@ function useDebounce(value, delay) {
   return debouncedValue;
 }
 
-const Tenants = () => {
+const TenantManagement = () => {
   // States for tenants list, search and filter.
   const [tenants, setTenants] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   // Status filter: use "" for All, "active" for active only, "disabled" for disabled only.
   const [statusFilter, setStatusFilter] = useState("");
-
   const [loading, setLoading] = useState(true);
   const [editingTenant, setEditingTenant] = useState(null);
   const toast = useToast();
@@ -85,15 +84,45 @@ const Tenants = () => {
   // Debounce the search term for performance.
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
 
-  // Fetch tenants from backend.
-  const fetchTenants = async () => {
+  // Fetch tenants and subscriptions together on mount.
+  const fetchTenantsAndSubscriptions = async () => {
+    setLoading(true);
     try {
-      const response = await fetch("/api/tenants");
-      if (!response.ok) {
+      // Fetch tenants list.
+      const tenantResponse = await fetch("/api/tenants", {
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!tenantResponse.ok) {
         throw new Error("Failed to fetch tenants");
       }
-      const data = await response.json();
-      setTenants(data);
+      const tenantData = await tenantResponse.json();
+
+      // Fetch subscriptions list.
+      const subscriptionResponse = await fetch("/api/subscriptions", {
+        headers: { "Content-Type": "application/json" },
+      });
+      let subscriptionData = [];
+      if (subscriptionResponse.ok) {
+        subscriptionData = await subscriptionResponse.json();
+      } else {
+        console.error("Failed to fetch subscriptions");
+      }
+
+      // Create a mapping from tenantId to subscription.
+      const subscriptionMap = subscriptionData.reduce((acc, sub) => {
+        if (sub.tenantId) {
+          acc[sub.tenantId] = sub;
+        }
+        return acc;
+      }, {});
+
+      // Join each tenant with its subscription (if available).
+      const combinedData = tenantData.map((tenant) => ({
+        ...tenant,
+        subscription: subscriptionMap[tenant.id] || null,
+      }));
+
+      setTenants(combinedData);
     } catch (error) {
       toast({
         title: "Error fetching tenants",
@@ -108,13 +137,13 @@ const Tenants = () => {
   };
 
   useEffect(() => {
-    fetchTenants();
+    fetchTenantsAndSubscriptions();
   }, []);
 
   // Filter the tenants by search term and status.
   const filteredTenants = useMemo(() => {
     return tenants.filter((tenant) => {
-      const termMatch = tenant.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const termMatch = tenant.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase());
       let statusMatch = true;
       if (statusFilter === "active") {
         statusMatch = tenant.isActive;
@@ -123,9 +152,9 @@ const Tenants = () => {
       }
       return termMatch && statusMatch;
     });
-  }, [tenants, searchTerm, statusFilter]);
+  }, [tenants, debouncedSearchTerm, statusFilter]);
 
-  // Sorting
+  // Sorting.
   const filteredAndSortedTenants = useMemo(() => {
     const sorted = [...filteredTenants];
     if (sortConfig !== null) {
@@ -149,7 +178,7 @@ const Tenants = () => {
     return sorted;
   }, [filteredTenants, sortConfig]);
 
-  // Pagination.
+  // Pagination calculations.
   const totalPages = Math.ceil(filteredAndSortedTenants.length / pageSize);
   const paginatedTenants = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
@@ -166,17 +195,13 @@ const Tenants = () => {
     });
   };
 
-  // Handlers for tenant status toggling, deletion, add, and edit.
+  // Handlers for tenant status toggling, deletion, adding, and editing.
   const handleToggleTenantStatus = async (tenantId) => {
     try {
-      const response = await fetch(`/api/tenants/${tenantId}/toggle`, {
-        method: "PATCH",
-      });
+      const response = await fetch(`/api/tenants/${tenantId}/toggle`, { method: "PATCH" });
       if (!response.ok) throw new Error("Error toggling tenant status");
       const updatedTenant = await response.json();
-      setTenants((prev) =>
-        prev.map((tenant) => (tenant.id === tenantId ? updatedTenant : tenant))
-      );
+      setTenants((prev) => prev.map((tenant) => (tenant.id === tenantId ? updatedTenant : tenant)));
       toast({
         title: "Tenant status updated",
         status: "success",
@@ -202,9 +227,7 @@ const Tenants = () => {
   const handleDeleteTenantConfirm = async () => {
     if (!tenantToDelete) return;
     try {
-      const response = await fetch(`/api/tenants/${tenantToDelete.id}`, {
-        method: "DELETE",
-      });
+      const response = await fetch(`/api/tenants/${tenantToDelete.id}`, { method: "DELETE" });
       if (!response.ok) throw new Error("Error deleting tenant");
       setTenants((prev) => prev.filter((tenant) => tenant.id !== tenantToDelete.id));
       toast({
@@ -226,15 +249,32 @@ const Tenants = () => {
     }
   };
 
-  const handleAddTenant = (tenantData) => {
-    setTenants((prev) => [...prev, tenantData]);
-    toast({
-      title: "Tenant added successfully",
-      status: "success",
-      duration: 3000,
-      isClosable: true,
-    });
-    onAddClose();
+  const handleAddTenant = async (tenantData) => {
+    try {
+      const response = await fetch(`/api/tenants`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(tenantData),
+      });
+      if (!response.ok) throw new Error("Error adding tenant");
+      const newTenant = await response.json();
+      setTenants((prev) => [...prev, newTenant]);
+      toast({
+        title: "Tenant added successfully",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+      onAddClose();
+    } catch (error) {
+      toast({
+        title: "Error adding tenant",
+        description: error.message,
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+    }
   };
 
   const handleEditTenant = async (tenantData) => {
@@ -246,9 +286,7 @@ const Tenants = () => {
       });
       if (!response.ok) throw new Error("Error updating tenant");
       const updatedTenant = await response.json();
-      setTenants((prev) =>
-        prev.map((t) => (t.id === editingTenant.id ? updatedTenant : t))
-      );
+      setTenants((prev) => prev.map((t) => (t.id === editingTenant.id ? updatedTenant : t)));
       toast({
         title: "Tenant updated successfully",
         status: "success",
@@ -275,6 +313,7 @@ const Tenants = () => {
         <Text color="gray.600" mb={6}>
           Manage your tenant configurations.
         </Text>
+
         {/* Header: Search and Filter on the left, Add Tenant on the right */}
         <Flex mb={4} alignItems="center" justifyContent="space-between">
           <Flex alignItems="center">
@@ -311,7 +350,7 @@ const Tenants = () => {
             Add Tenant
           </Button>
         </Flex>
-  
+
         {/* Tenants Table */}
         {loading ? (
           <Flex justify="center" align="center" minH="200px">
@@ -324,10 +363,7 @@ const Tenants = () => {
                 <Thead>
                   <Tr>
                     <Th>Logo</Th>
-                    <Th
-                      cursor="pointer"
-                      onClick={() => handleSort("name")}
-                    >
+                    <Th cursor="pointer" onClick={() => handleSort("name")}>
                       Name{" "}
                       {sortConfig.key === "name" &&
                         (sortConfig.direction === "asc" ? <TriangleUpIcon ml={1} /> : <TriangleDownIcon ml={1} />)}
@@ -335,10 +371,7 @@ const Tenants = () => {
                     <Th>Domain</Th>
                     <Th>Subscription Tier</Th>
                     <Th>Status</Th>
-                    <Th
-                      cursor="pointer"
-                      onClick={() => handleSort("createdAt")}
-                    >
+                    <Th cursor="pointer" onClick={() => handleSort("createdAt")}>
                       Created At{" "}
                       {sortConfig.key === "createdAt" &&
                         (sortConfig.direction === "asc" ? <TriangleUpIcon ml={1} /> : <TriangleDownIcon ml={1} />)}
@@ -361,7 +394,11 @@ const Tenants = () => {
                         </Td>
                         <Td>{tenant.name}</Td>
                         <Td>{tenant.domain}</Td>
-                        <Td>{tenant.subscriptionTier}</Td>
+                        <Td>
+                          {tenant.subscription
+                            ? tenant.subscription.subscriptionTier || tenant.subscription.name || "N/A"
+                            : "None"}
+                        </Td>
                         <Td>{tenant.isActive ? "Active" : "Disabled"}</Td>
                         <Td>{tenant.createdAt ? new Date(tenant.createdAt).toLocaleString() : "N/A"}</Td>
                         <Td isNumeric>
@@ -405,10 +442,7 @@ const Tenants = () => {
               </Table>
             </TableContainer>
             <Flex mt={4} justify="space-between" align="center">
-              <Button
-                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-                disabled={currentPage === 1}
-              >
+              <Button onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))} disabled={currentPage === 1}>
                 Previous
               </Button>
               <Text>
@@ -424,7 +458,7 @@ const Tenants = () => {
           </>
         )}
       </Box>
-  
+
       {/* Delete Confirmation Dialog */}
       <AlertDialog isOpen={isDeleteOpen} leastDestructiveRef={cancelRef} onClose={onDeleteClose}>
         <AlertDialogOverlay>
@@ -446,7 +480,7 @@ const Tenants = () => {
           </AlertDialogContent>
         </AlertDialogOverlay>
       </AlertDialog>
-  
+
       {/* Add Tenant Modal */}
       <TenantFormModal
         isOpen={isAddOpen}
@@ -457,7 +491,7 @@ const Tenants = () => {
         mode="add"
         onSubmit={handleAddTenant}
       />
-  
+
       {/* Edit Tenant Modal */}
       {editingTenant && (
         <TenantFormModal
@@ -475,4 +509,4 @@ const Tenants = () => {
   );
 };
 
-export default Tenants;
+export default TenantManagement;
