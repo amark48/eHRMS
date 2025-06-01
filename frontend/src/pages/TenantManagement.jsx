@@ -1,6 +1,6 @@
 // frontend/src/pages/TenantManagement.jsx
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Box,
   Heading,
@@ -18,19 +18,18 @@ import {
   InputGroup,
   InputLeftElement,
   Flex,
-  Spacer,
-  useDisclosure,
-  useToast,
+  Select,
+  Spinner,
   Avatar,
   Tooltip,
-  Spinner,
-  Select,
   AlertDialog,
   AlertDialogBody,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogContent,
   AlertDialogOverlay,
+  useDisclosure,
+  useToast,
 } from "@chakra-ui/react";
 import {
   AddIcon,
@@ -45,51 +44,63 @@ import {
 import AdminLayout from "../components/AdminLayout";
 import TenantFormModal from "../components/TenantFormModal";
 
-// Custom debounce hook.
+// Custom debounce hook (as in your repository)
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
   useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
     return () => clearTimeout(handler);
   }, [value, delay]);
   return debouncedValue;
 }
 
 const TenantManagement = () => {
-  // States for tenants list, search and filter.
+  // States for tenants list, search/filter etc.
   const [tenants, setTenants] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
-  // Status filter: use "" for All, "active" for active only, "disabled" for disabled only.
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState(""); // "" = All, "active" or "disabled"
   const [loading, setLoading] = useState(true);
   const [editingTenant, setEditingTenant] = useState(null);
   const toast = useToast();
 
-  // Chakra disclosure hooks for modals.
-  const { isOpen: isAddOpen, onOpen: onAddOpen, onClose: onAddClose } = useDisclosure();
-  const { isOpen: isEditOpen, onOpen: onEditOpen, onClose: onEditClose } = useDisclosure();
-  const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
+  // Chakra modals for Add, Edit and Delete dialogs
+  const {
+    isOpen: isAddOpen,
+    onOpen: onAddOpen,
+    onClose: onAddClose,
+  } = useDisclosure();
+  const {
+    isOpen: isEditOpen,
+    onOpen: onEditOpen,
+    onClose: onEditClose,
+  } = useDisclosure();
+  const {
+    isOpen: isDeleteOpen,
+    onOpen: onDeleteOpen,
+    onClose: onDeleteClose,
+  } = useDisclosure();
   const [tenantToDelete, setTenantToDelete] = useState(null);
   const cancelRef = useRef();
 
-  // Pagination state.
+  // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
 
-  // Sorting state.
+  // Sorting state
   const [sortConfig, setSortConfig] = useState({ key: "name", direction: "asc" });
 
-  // Debounce the search term for performance.
+  // Debounce search term for performance.
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
 
-  // Fetch tenants and subscriptions together on mount.
+  // API Base (from .env)
+  const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000";
+
+  // Function to fetch tenants and subscriptions, then join them.
   const fetchTenantsAndSubscriptions = async () => {
     setLoading(true);
     try {
-      // Fetch tenants list.
-      const tenantResponse = await fetch("/api/tenants", {
+      // Fetch tenants
+      const tenantResponse = await fetch(`${API_BASE}/api/tenants`, {
         headers: { "Content-Type": "application/json" },
       });
       if (!tenantResponse.ok) {
@@ -97,9 +108,13 @@ const TenantManagement = () => {
       }
       const tenantData = await tenantResponse.json();
 
-      // Fetch subscriptions list.
-      const subscriptionResponse = await fetch("/api/subscriptions", {
-        headers: { "Content-Type": "application/json" },
+      // Fetch subscriptions with auth header
+      const token = localStorage.getItem("authToken");
+      const subscriptionResponse = await fetch(`${API_BASE}/api/subscriptions`, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
       });
       let subscriptionData = [];
       if (subscriptionResponse.ok) {
@@ -108,19 +123,18 @@ const TenantManagement = () => {
         console.error("Failed to fetch subscriptions");
       }
 
-      // Create a mapping from tenantId to subscription.
+      // Build a map keyed by the Subscription id:
       const subscriptionMap = subscriptionData.reduce((acc, sub) => {
-        if (sub.tenantId) {
-          acc[sub.tenantId] = sub;
-        }
+        acc[sub.id] = sub;
         return acc;
       }, {});
 
-      // Join each tenant with its subscription (if available).
+      // Then, for each tenant, join the subscription based on tenant.subscriptionId:
       const combinedData = tenantData.map((tenant) => ({
         ...tenant,
-        subscription: subscriptionMap[tenant.id] || null,
+        subscription: tenant.subscriptionId ? subscriptionMap[tenant.subscriptionId] || null : null,
       }));
+
 
       setTenants(combinedData);
     } catch (error) {
@@ -140,7 +154,7 @@ const TenantManagement = () => {
     fetchTenantsAndSubscriptions();
   }, []);
 
-  // Filter the tenants by search term and status.
+  // Filter tenants based on search term & status.
   const filteredTenants = useMemo(() => {
     return tenants.filter((tenant) => {
       const termMatch = tenant.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase());
@@ -154,38 +168,34 @@ const TenantManagement = () => {
     });
   }, [tenants, debouncedSearchTerm, statusFilter]);
 
-  // Sorting.
+  // Sorting logic.
   const filteredAndSortedTenants = useMemo(() => {
     const sorted = [...filteredTenants];
-    if (sortConfig !== null) {
+    if (sortConfig != null) {
       sorted.sort((a, b) => {
         if (sortConfig.key === "createdAt") {
           const dateA = new Date(a.createdAt);
           const dateB = new Date(b.createdAt);
           return sortConfig.direction === "asc" ? dateA - dateB : dateB - dateA;
         }
-        const aKey = a[sortConfig.key]?.toString().toLowerCase() || "";
-        const bKey = b[sortConfig.key]?.toString().toLowerCase() || "";
-        if (aKey < bKey) {
-          return sortConfig.direction === "asc" ? -1 : 1;
-        }
-        if (aKey > bKey) {
-          return sortConfig.direction === "asc" ? 1 : -1;
-        }
+        const aKey = (a[sortConfig.key] || "").toString().toLowerCase();
+        const bKey = (b[sortConfig.key] || "").toString().toLowerCase();
+        if (aKey < bKey) return sortConfig.direction === "asc" ? -1 : 1;
+        if (aKey > bKey) return sortConfig.direction === "asc" ? 1 : -1;
         return 0;
       });
     }
     return sorted;
   }, [filteredTenants, sortConfig]);
 
-  // Pagination calculations.
+  // Pagination calculation.
   const totalPages = Math.ceil(filteredAndSortedTenants.length / pageSize);
   const paginatedTenants = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     return filteredAndSortedTenants.slice(start, start + pageSize);
   }, [filteredAndSortedTenants, currentPage, pageSize]);
 
-  // Sorting handler.
+  // Change sort handler.
   const handleSort = (key) => {
     setSortConfig((prev) => {
       if (prev.key === key) {
@@ -195,13 +205,31 @@ const TenantManagement = () => {
     });
   };
 
-  // Handlers for tenant status toggling, deletion, adding, and editing.
+  // Handlers for tenant actions.
+  // Revised handleToggleTenantStatus to update the tenant locally
+
   const handleToggleTenantStatus = async (tenantId) => {
     try {
-      const response = await fetch(`/api/tenants/${tenantId}/toggle`, { method: "PATCH" });
-      if (!response.ok) throw new Error("Error toggling tenant status");
+      const response = await fetch(`${API_BASE}/api/tenants/${tenantId}/toggle`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (!response.ok)
+        throw new Error("Error toggling tenant status");
       const updatedTenant = await response.json();
-      setTenants((prev) => prev.map((tenant) => (tenant.id === tenantId ? updatedTenant : tenant)));
+      
+      // Preserve the joined subscription data from our current state if missing
+      const existingTenant = tenants.find((tenant) => tenant.id === tenantId);
+      const mergedTenant = {
+        ...updatedTenant,
+        subscription: existingTenant ? existingTenant.subscription : null,
+      };
+
+      setTenants((prev) =>
+        prev.map((tenant) =>
+          tenant.id === tenantId ? mergedTenant : tenant
+        )
+      );
       toast({
         title: "Tenant status updated",
         status: "success",
@@ -227,9 +255,13 @@ const TenantManagement = () => {
   const handleDeleteTenantConfirm = async () => {
     if (!tenantToDelete) return;
     try {
-      const response = await fetch(`/api/tenants/${tenantToDelete.id}`, { method: "DELETE" });
+      const response = await fetch(`${API_BASE}/api/tenants/${tenantToDelete.id}`, {
+        method: "DELETE",
+      });
       if (!response.ok) throw new Error("Error deleting tenant");
-      setTenants((prev) => prev.filter((tenant) => tenant.id !== tenantToDelete.id));
+      setTenants((prev) =>
+        prev.filter((tenant) => tenant.id !== tenantToDelete.id)
+      );
       toast({
         title: "Tenant deleted successfully",
         status: "success",
@@ -251,7 +283,7 @@ const TenantManagement = () => {
 
   const handleAddTenant = async (tenantData) => {
     try {
-      const response = await fetch(`/api/tenants`, {
+      const response = await fetch(`${API_BASE}/api/tenants`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(tenantData),
@@ -279,14 +311,16 @@ const TenantManagement = () => {
 
   const handleEditTenant = async (tenantData) => {
     try {
-      const response = await fetch(`/api/tenants/${editingTenant.id}`, {
+      const response = await fetch(`${API_BASE}/api/tenants/${editingTenant.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(tenantData),
       });
       if (!response.ok) throw new Error("Error updating tenant");
       const updatedTenant = await response.json();
-      setTenants((prev) => prev.map((t) => (t.id === editingTenant.id ? updatedTenant : t)));
+      setTenants((prev) =>
+        prev.map((t) => (t.id === editingTenant.id ? updatedTenant : t))
+      );
       toast({
         title: "Tenant updated successfully",
         status: "success",
@@ -313,8 +347,7 @@ const TenantManagement = () => {
         <Text color="gray.600" mb={6}>
           Manage your tenant configurations.
         </Text>
-
-        {/* Header: Search and Filter on the left, Add Tenant on the right */}
+        {/* Header: Search, Filter, Add Tenant */}
         <Flex mb={4} alignItems="center" justifyContent="space-between">
           <Flex alignItems="center">
             <InputGroup maxW="300px">
@@ -350,7 +383,6 @@ const TenantManagement = () => {
             Add Tenant
           </Button>
         </Flex>
-
         {/* Tenants Table */}
         {loading ? (
           <Flex justify="center" align="center" minH="200px">
@@ -363,18 +395,32 @@ const TenantManagement = () => {
                 <Thead>
                   <Tr>
                     <Th>Logo</Th>
-                    <Th cursor="pointer" onClick={() => handleSort("name")}>
+                    <Th
+                      cursor="pointer"
+                      onClick={() => handleSort("name")}
+                    >
                       Name{" "}
                       {sortConfig.key === "name" &&
-                        (sortConfig.direction === "asc" ? <TriangleUpIcon ml={1} /> : <TriangleDownIcon ml={1} />)}
+                        (sortConfig.direction === "asc" ? (
+                          <TriangleUpIcon ml={1} />
+                        ) : (
+                          <TriangleDownIcon ml={1} />
+                        ))}
                     </Th>
                     <Th>Domain</Th>
                     <Th>Subscription Tier</Th>
                     <Th>Status</Th>
-                    <Th cursor="pointer" onClick={() => handleSort("createdAt")}>
+                    <Th
+                      cursor="pointer"
+                      onClick={() => handleSort("createdAt")}
+                    >
                       Created At{" "}
                       {sortConfig.key === "createdAt" &&
-                        (sortConfig.direction === "asc" ? <TriangleUpIcon ml={1} /> : <TriangleDownIcon ml={1} />)}
+                        (sortConfig.direction === "asc" ? (
+                          <TriangleUpIcon ml={1} />
+                        ) : (
+                          <TriangleDownIcon ml={1} />
+                        ))}
                     </Th>
                     <Th isNumeric>Actions</Th>
                   </Tr>
@@ -396,11 +442,17 @@ const TenantManagement = () => {
                         <Td>{tenant.domain}</Td>
                         <Td>
                           {tenant.subscription
-                            ? tenant.subscription.subscriptionTier || tenant.subscription.name || "N/A"
+                            ? tenant.subscription.subscriptionTier ||
+                              tenant.subscription.name ||
+                              "N/A"
                             : "None"}
                         </Td>
                         <Td>{tenant.isActive ? "Active" : "Disabled"}</Td>
-                        <Td>{tenant.createdAt ? new Date(tenant.createdAt).toLocaleString() : "N/A"}</Td>
+                        <Td>
+                          {tenant.createdAt
+                            ? new Date(tenant.createdAt).toLocaleString()
+                            : "N/A"}
+                        </Td>
                         <Td isNumeric>
                           <Tooltip label="Edit Tenant">
                             <IconButton
@@ -426,7 +478,9 @@ const TenantManagement = () => {
                               }}
                             />
                           </Tooltip>
-                          <Tooltip label={tenant.isActive ? "Disable Tenant" : "Enable Tenant"}>
+                          <Tooltip
+                            label={tenant.isActive ? "Disable Tenant" : "Enable Tenant"}
+                          >
                             <IconButton
                               aria-label={tenant.isActive ? "Disable tenant" : "Enable tenant"}
                               icon={tenant.isActive ? <LockIcon /> : <UnlockIcon />}
@@ -442,14 +496,21 @@ const TenantManagement = () => {
               </Table>
             </TableContainer>
             <Flex mt={4} justify="space-between" align="center">
-              <Button onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))} disabled={currentPage === 1}>
+              <Button
+                onClick={() =>
+                  setCurrentPage((prev) => Math.max(prev - 1, 1))
+                }
+                disabled={currentPage === 1}
+              >
                 Previous
               </Button>
               <Text>
                 Page {currentPage} of {totalPages || 1}
               </Text>
               <Button
-                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                onClick={() =>
+                  setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                }
                 disabled={currentPage === totalPages || totalPages === 0}
               >
                 Next
@@ -460,20 +521,29 @@ const TenantManagement = () => {
       </Box>
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog isOpen={isDeleteOpen} leastDestructiveRef={cancelRef} onClose={onDeleteClose}>
+      <AlertDialog
+        isOpen={isDeleteOpen}
+        leastDestructiveRef={cancelRef}
+        onClose={onDeleteClose}
+      >
         <AlertDialogOverlay>
           <AlertDialogContent>
             <AlertDialogHeader fontSize="lg" fontWeight="bold">
               Delete Tenant
             </AlertDialogHeader>
             <AlertDialogBody>
-              Are you sure you want to delete the tenant <strong>{tenantToDelete?.name}</strong>? This action cannot be undone.
+              Are you sure you want to delete the tenant{" "}
+              <strong>{tenantToDelete?.name}</strong>? This action cannot be undone.
             </AlertDialogBody>
             <AlertDialogFooter>
               <Button ref={cancelRef} onClick={onDeleteClose}>
                 Cancel
               </Button>
-              <Button colorScheme="red" onClick={handleDeleteTenantConfirm} ml={3}>
+              <Button
+                colorScheme="red"
+                onClick={handleDeleteTenantConfirm}
+                ml={3}
+              >
                 Delete
               </Button>
             </AlertDialogFooter>
