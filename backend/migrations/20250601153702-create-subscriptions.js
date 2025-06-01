@@ -25,7 +25,8 @@ module.exports = {
         type: Sequelize.JSON,
         allowNull: true,
       },
-      trialPeriodDays: {
+      // Make sure to create column with snake_case naming for trialPeriodDays:
+      trial_period_days: {
         type: Sequelize.INTEGER,
         allowNull: true,
       },
@@ -34,12 +35,14 @@ module.exports = {
         allowNull: false,
         defaultValue: 'active',
       },
-      autoRenew: {
+      // Column for autoRenew mapping:
+      auto_renew: {
         type: Sequelize.BOOLEAN,
         allowNull: false,
         defaultValue: true,
       },
-      renewalDate: {
+      // Column for renewalDate mapping:
+      renewal_date: {
         type: Sequelize.DATE,
         allowNull: true,
       },

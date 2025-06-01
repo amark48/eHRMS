@@ -1,9 +1,9 @@
 // backend/src/models/Subscription.js
 
 const { DataTypes } = require("sequelize");
-const db = require("../config/database");
+const { sequelize } = require("../config/db");
 
-const Subscription = db.define(
+const Subscription =sequelize.define(
   "Subscription",
   {
     // Primary Key: Unique identifier for the subscription plan.
@@ -36,6 +36,7 @@ const Subscription = db.define(
     trialPeriodDays: {
       type: DataTypes.INTEGER,
       allowNull: true,
+      field: "trial_period_days", // maps trialPeriodDays to the snake_case column
     },
     // Status of the subscription plan – if the plan is active, deprecated or suspended.
     status: {
@@ -48,11 +49,13 @@ const Subscription = db.define(
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: true,
+      field: "auto_renew",
     },
     // The next scheduled renewal date (optional)
     renewalDate: {
       type: DataTypes.DATE,
       allowNull: true,
+      field: "renewal_date",
     },
   },
   {

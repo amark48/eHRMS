@@ -2,8 +2,7 @@
 
 const asyncHandler = require("express-async-handler");
 const { Op } = require("sequelize");
-const Subscription = require("../models/Subscription");
-const { debugLog } = require("../utils/logger");
+const { Subscription } = require("../models"); // Import initialized models via index.js
 
 /**
  * GET /api/subscriptions
@@ -21,7 +20,9 @@ const getSubscriptions = asyncHandler(async (req, res) => {
     res.json(subscriptions);
   } catch (error) {
     console.error("[ERROR] Failed to fetch subscriptions:", error);
-    res.status(500).json({ message: "Error fetching subscriptions", error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error fetching subscriptions", error: error.message });
   }
 });
 
@@ -41,7 +42,9 @@ const getSubscriptionById = asyncHandler(async (req, res) => {
     res.json(subscription);
   } catch (error) {
     console.error("[ERROR] getSubscriptionById error:", error);
-    res.status(500).json({ message: "Error fetching subscription", error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error fetching subscription", error: error.message });
   }
 });
 
@@ -49,30 +52,32 @@ const getSubscriptionById = asyncHandler(async (req, res) => {
  * POST /api/subscriptions
  * Create a new subscription plan.
  * Expected body fields:
- * - name, price, duration (required)
- * - features, trialPeriodDays, status, autoRenew, renewalDate (optional)
+ *  - name, price, duration, features, trialPeriodDays, status, autoRenew, renewalDate.
  */
 const createSubscription = asyncHandler(async (req, res) => {
   console.log("[DEBUG] Executing createSubscription function");
   console.log("[DEBUG] Incoming request body:", req.body);
-  const { name, price, duration, features, trialPeriodDays, status, autoRenew, renewalDate } = req.body;
-  
+
+  const { name, price, duration, features, trialPeriodDays, status, autoRenew, renewalDate } =
+    req.body;
+
   // Validate required fields.
   if (!name || !price || !duration) {
     console.error("[ERROR] Missing required fields: name, price, or duration");
     res.status(400);
     throw new Error("Subscription name, price, and duration are required.");
   }
-  
+
   try {
-    // Check for duplicate subscription name (global plans are recommended).
+    // Check for duplicate subscription name.
     const existingSubscription = await Subscription.findOne({ where: { name } });
     if (existingSubscription) {
       console.error("[ERROR] Subscription name already exists:", name);
       res.status(400);
       throw new Error("Subscription name already exists.");
     }
-    const newSubscription = await Subscription.create({
+
+    const subscriptionData = {
       name,
       price,
       duration,
@@ -81,12 +86,18 @@ const createSubscription = asyncHandler(async (req, res) => {
       status: status || "active",
       autoRenew: typeof autoRenew !== "undefined" ? autoRenew : true,
       renewalDate: renewalDate || null,
-    });
-    console.log("[DEBUG] Created new subscription:", newSubscription.toJSON());
+    };
+
+    console.log("[DEBUG] Creating subscription with data:", subscriptionData);
+
+    const newSubscription = await Subscription.create(subscriptionData);
+    console.log("[DEBUG] Created subscription with ID:", newSubscription.id);
     res.status(201).json(newSubscription);
   } catch (error) {
     console.error("[ERROR] Failed to create subscription:", error);
-    res.status(500).json({ message: "Error creating subscription", error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error creating subscription", error: error.message });
   }
 });
 
@@ -102,7 +113,7 @@ const updateSubscription = asyncHandler(async (req, res) => {
   try {
     const subscription = await Subscription.findByPk(subscriptionId);
     if (!subscription) {
-      console.error("[ERROR] Subscription not found for ID:", subscriptionId);
+      console.error("[DEBUG] Subscription not found for ID:", subscriptionId);
       res.status(404);
       throw new Error("Subscription not found.");
     }
@@ -118,21 +129,24 @@ const updateSubscription = asyncHandler(async (req, res) => {
       }
       subscription.name = req.body.name;
     }
-    // Update other fields if they exist in the body.
     if (req.body.price) subscription.price = req.body.price;
     if (req.body.duration) subscription.duration = req.body.duration;
     if (req.body.features) subscription.features = req.body.features;
-    if (typeof req.body.trialPeriodDays !== "undefined") subscription.trialPeriodDays = req.body.trialPeriodDays;
+    if (typeof req.body.trialPeriodDays !== "undefined")
+      subscription.trialPeriodDays = req.body.trialPeriodDays;
     if (req.body.status) subscription.status = req.body.status;
-    if (typeof req.body.autoRenew !== "undefined") subscription.autoRenew = req.body.autoRenew;
+    if (typeof req.body.autoRenew !== "undefined")
+      subscription.autoRenew = req.body.autoRenew;
     if (req.body.renewalDate) subscription.renewalDate = req.body.renewalDate;
-    
+
     await subscription.save();
     console.log("[DEBUG] Successfully updated subscription:", subscription.toJSON());
     res.json(subscription);
   } catch (error) {
     console.error("[ERROR] Failed to update subscription:", error);
-    res.status(500).json({ message: "Error updating subscription", error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error updating subscription", error: error.message });
   }
 });
 
@@ -147,7 +161,7 @@ const deleteSubscription = asyncHandler(async (req, res) => {
   try {
     const subscription = await Subscription.findByPk(subscriptionId);
     if (!subscription) {
-      console.error("[ERROR] Subscription not found for ID:", subscriptionId);
+      console.error("[DEBUG] Subscription not found for ID:", subscriptionId);
       res.status(404);
       throw new Error("Subscription not found.");
     }
@@ -156,7 +170,9 @@ const deleteSubscription = asyncHandler(async (req, res) => {
     res.json({ message: "Subscription deleted successfully" });
   } catch (error) {
     console.error("[ERROR] Failed to delete subscription:", error);
-    res.status(500).json({ message: "Error deleting subscription", error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error deleting subscription", error: error.message });
   }
 });
 
@@ -170,7 +186,7 @@ const toggleSubscriptionStatus = asyncHandler(async (req, res) => {
   try {
     const subscription = await Subscription.findByPk(req.params.id);
     if (!subscription) {
-      console.error("[ERROR] Subscription not found for ID:", req.params.id);
+      console.error("[DEBUG] Subscription not found for ID:", req.params.id);
       res.status(404);
       throw new Error("Subscription not found.");
     }
@@ -182,7 +198,10 @@ const toggleSubscriptionStatus = asyncHandler(async (req, res) => {
     res.json(subscription);
   } catch (error) {
     console.error("[ERROR] Failed to toggle subscription status:", error);
-    res.status(500).json({ message: "Error toggling subscription status", error: error.message });
+    res.status(500).json({
+      message: "Error toggling subscription status",
+      error: error.message,
+    });
   }
 });
 

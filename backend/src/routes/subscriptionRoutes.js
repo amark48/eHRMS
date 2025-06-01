@@ -7,6 +7,7 @@ const {
   createSubscription,
   updateSubscription,
   deleteSubscription,
+  toggleSubscriptionStatus,
 } = require("../controllers/subscriptionController");
 const { protect, adminOnly } = require("../middleware/authMiddleware");
 
@@ -16,6 +17,7 @@ console.log("[DEBUG] subscriptionRoutes.js - Imported Controllers:", {
   createSubscription,
   updateSubscription,
   deleteSubscription,
+  toggleSubscriptionStatus,
 });
 console.log("[DEBUG] subscriptionRoutes.js - Imported Middleware:", {
   protect,
@@ -72,6 +74,19 @@ router.delete(
     next();
   },
   deleteSubscription
+);
+
+// Make sure the PATCH route is defined:
+router.patch(
+  "/:id/toggle", 
+  protect, 
+  adminOnly, 
+  async (req, res, next) => {
+    console.log("[DEBUG] DELETE /api/subscriptions/:id/toggle triggered");
+    console.log("[DEBUG] Changing status of subscription ID:", req.params.id);
+    next();
+  },  
+  toggleSubscriptionStatus
 );
 
 module.exports = router;
