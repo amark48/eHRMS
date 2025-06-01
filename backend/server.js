@@ -1,8 +1,8 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 const { connectDB } = require("./src/config/db");
-const multer = require("multer");
 
 // Import routes
 const tenantRoutes = require("./src/routes/tenantRoutes");
@@ -11,11 +11,12 @@ const userRoutes = require("./src/routes/userRoutes");
 const roleRoutes = require("./src/routes/roleRoutes");
 const subscriptionRoutes = require("./src/routes/subscriptionRoutes");
 const uploadRoutes = require("./src/routes/uploadRoutes");
+const avatarUploadRoutes = require("./src/routes/avatarUploadRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Debug logging to confirm route imports
+// Debug logging to confirm route imports.
 console.log("[DEBUG] Loaded Routes:", {
   tenantRoutes,
   authRoutes,
@@ -25,7 +26,7 @@ console.log("[DEBUG] Loaded Routes:", {
   uploadRoutes,
 });
 
-// Enable CORS
+// Enable CORS.
 app.use(
   cors({
     origin: "http://localhost:3000",
@@ -33,42 +34,39 @@ app.use(
   })
 );
 
-// Middleware to parse JSON requests
+// Middleware to parse JSON and URL-encoded requests.
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
+// Serve static files from the "uploads" folder using a cross-platform path.
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-
-app.use(express.json()); // ✅ Handle JSON requests
-app.use(express.urlencoded({ extended: true })); // ✅ Handle URL-encoded requests
-
-
-// Serve static files
-app.use("/uploads", express.static("uploads"));
-
-// Debug Logging Middleware
+// Debug Logging Middleware.
 app.use((req, res, next) => {
   console.log(`[DEBUG] Request received: ${req.method} ${req.url}`);
   next();
 });
 
-// Test Route
+// Test Route.
 app.get("/", (req, res) => res.send("HRMS SaaS API is running..."));
 
-// 🔹 **Mount Routes Properly**
+// Mount your API routes.
 app.use("/api/tenants", tenantRoutes);
 app.use("/api/auth", authRoutes);
-app.use("/api/users", userRoutes); // ✅ User routes properly mounted
+app.use("/api/users", userRoutes);
 app.use("/api/roles", roleRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
-app.use("/api/upload", uploadRoutes); // 🔄 Corrected mounting for uploads
+app.use("/api/upload", uploadRoutes);
+// For avatar uploads, mount under "/upload-avatar".
+app.use("/upload-avatar", avatarUploadRoutes);
 
-// 🔹 **Check Unmatched Routes**
+// Handle unmatched routes.
 app.use((req, res, next) => {
   console.error(`[ERROR] Endpoint Not Found: ${req.method} ${req.url}`);
   res.status(404).json({ message: "Endpoint Not Found" });
 });
 
-// 🔹 **Improved Error Handling**
+// Improved Error Handling Middleware.
 app.use((err, req, res, next) => {
   console.error(`[ERROR] ${err.message}`, err.stack);
   res.status(err.status || 500).json({
@@ -77,7 +75,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Connect to DB and Start Server
+// Connect to the database and start the server.
 connectDB()
   .then(() => {
     app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

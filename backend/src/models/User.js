@@ -42,10 +42,20 @@ const User = sequelize.define(
       defaultValue: false, 
       allowNull: false 
     },
+    // Updated mfaType to store an array of allowed values.
+    // This works only in PostgreSQL.
     mfaType: { 
-      type: DataTypes.ENUM("TOTP", "EMAIL", "SMS"), 
+      type: DataTypes.ARRAY(DataTypes.ENUM("TOTP", "EMAIL", "SMS")), 
       allowNull: true,
-      validate: { isIn: [["TOTP", "EMAIL", "SMS"]] }
+      // Each item is automatically validated by the ENUM type.
+      // You can add a custom validator below if needed.
+      // validate: {
+      //   isArrayOfAllowedValues(value) {
+      //     if (value && !Array.isArray(value)) {
+      //       throw new Error('mfaType must be an array');
+      //     }
+      //   }
+      // }
     },
     // ---------- New Fields for OTP/Recovery ----------
     otp: { 
@@ -77,7 +87,7 @@ const User = sequelize.define(
       type: DataTypes.STRING, 
       allowNull: true 
     },
-      // ↓ NEW STATUS FIELD ↓
+    // ↓ NEW STATUS FIELD ↓
     isActive: {
       type: DataTypes.BOOLEAN,
       allowNull: false,

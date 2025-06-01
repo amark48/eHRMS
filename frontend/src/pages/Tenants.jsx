@@ -394,7 +394,7 @@ const Tenants = () => {
                     paginatedTenants.map((tenant) => (
                       <Tr key={tenant.id}>
                         <Td>
-                          <Avatar src={tenant.logoUrl} name={tenant.name} />
+                          <Avatar size="sm" src={tenant.logoUrl} name={tenant.name} />
                         </Td>
                         <Td>{tenant.name}</Td>
                         <Td>{tenant.domain}</Td>

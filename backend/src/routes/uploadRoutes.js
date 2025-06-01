@@ -1,4 +1,5 @@
-// routes/uploadRoutes.js
+// backend/src/routes/uploadRoutes.js
+
 const express = require("express");
 const router = express.Router();
 const multer = require("multer");
@@ -33,8 +34,7 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
-    // Use a temporary fixed filename (e.g. "logo.png").
-    // It will be renamed in the route handler.
+    // Use a temporary fixed filename (e.g. "logo.png"). It will be renamed in the route handler.
     cb(null, `logo${ext}`);
   },
 });
@@ -50,33 +50,27 @@ const upload = multer({
   },
 });
 
-// POST /upload/:tenantId/logo
+// POST /:tenantId/logo
 // This endpoint processes the upload, renames the file to a permanent filename,
 // updates the Tenant record with the new logo URL, and returns that URL.
-router.post("/upload/:tenantId/logo", upload.single("logo"), async (req, res) => {
+router.post("/:tenantId/logo", upload.single("logo"), async (req, res) => {
   try {
     const { tenantId } = req.params;
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" });
     }
-
     // Generate a new file name using tenantId and the current timestamp.
     const ext = path.extname(req.file.originalname);
     const newFileName = `logo_${tenantId}_${Date.now()}${ext}`;
-
     // Get the directory where the file was uploaded.
     const fileDir = path.dirname(req.file.path);
     const newFilePath = path.join(fileDir, newFileName);
-
     // Rename the file using the promise-based fs API.
     await fs.promises.rename(req.file.path, newFilePath);
-
     // Construct the public URL for the uploaded logo.
     const logoUrl = `/uploads/${tenantId}/logo/${newFileName}`;
-
     // Update the Tenant record with the new logoUrl.
     await Tenant.update({ logoUrl }, { where: { id: tenantId } });
-
     res.status(200).json({ logoUrl });
   } catch (error) {
     console.error("Error uploading or renaming logo:", error);

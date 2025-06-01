@@ -1,4 +1,5 @@
 // src/components/TenantFormModal.jsx
+
 import React, { useState, useEffect, useRef } from "react";
 import {
   Modal,
@@ -79,6 +80,8 @@ const US_STATES = [
   "District of Columbia",
 ];
 
+const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000";
+
 const TenantFormModal = ({
   isOpen,
   onClose,
@@ -92,9 +95,9 @@ const TenantFormModal = ({
   const [industry, setIndustry] = useState("");
   const [industryOther, setIndustryOther] = useState("");
   const [subscriptionTier, setSubscriptionTier] = useState("");
-  // When a file is selected, store its File object.
+  // Logo file state.
   const [logo, setLogo] = useState(null);
-  // For display purposes only—the preview URL is generated via URL.createObjectURL.
+  // For display purposes (preview URL).
   const [logoPreview, setLogoPreview] = useState("");
   const [companyWebsite, setCompanyWebsite] = useState("");
 
@@ -110,16 +113,16 @@ const TenantFormModal = ({
   const [mfaEnabled, setMfaEnabled] = useState(false);
   const [allowedMfa, setAllowedMfa] = useState([]);
 
-  // Local state for whether the tenant is active.
+  // Local state for active status.
   const [isActive, setIsActive] = useState(true);
+
+  // Submitting state.
+  const [submitting, setSubmitting] = useState(false);
 
   // useRef used to ensure the form is initialized only once per modal open.
   const initializedRef = useRef(false);
 
-    // Add the submitting state at the top, along with the rest:
-  const [submitting, setSubmitting] = useState(false);
-
-
+  // Effect to initialize form fields when the modal opens.
   useEffect(() => {
     if (isOpen && !initializedRef.current) {
       if (mode === "edit" && initialData && Object.keys(initialData).length) {
@@ -139,10 +142,12 @@ const TenantFormModal = ({
         setAllowedMfa(
           Array.isArray(initialData.allowedMfa) ? initialData.allowedMfa : []
         );
-        // For the logo, no file is set; use the existing logo URL as preview.
+        // For the logo, if a logo file is not updated, use existing logo URL as preview.
         setLogo(null);
         setLogoPreview(initialData.logoUrl || "");
-        setIsActive(typeof initialData.isActive === "boolean" ? initialData.isActive : true);
+        setIsActive(
+          typeof initialData.isActive === "boolean" ? initialData.isActive : true
+        );
       } else {
         // Reset fields for add mode.
         setName("");
@@ -170,7 +175,7 @@ const TenantFormModal = ({
     }
   }, [isOpen, mode, initialData]);
 
-  // Handle file selection for logo and generate a preview URL.
+  // Handler for logo file selection. Generates a preview.
   const handleLogoChange = (e) => {
     const file = e.target.files && e.target.files[0];
     if (file) {
@@ -182,95 +187,101 @@ const TenantFormModal = ({
     }
   };
 
-  // Submission handler: First send text-based data as JSON; then if a file is selected, upload it separately.
-const handleSubmit = async (e) => {
-  e.preventDefault();
-
-  if (submitting) return;
-  setSubmitting(true);
-
-  // Normalize inputs
-  const normalizedName = name.trim();
-  const normalizedDomain = domain.trim();
-  const finalIndustry = industry === "Other" ? industryOther.trim() : industry.trim();
-
-  const payload = {
-    name: normalizedName,
-    domain: normalizedDomain,
-    industry: finalIndustry,
-    subscriptionTier: subscriptionTier.trim(),
-    companyWebsite: companyWebsite.trim(),
-    billingStreet: billingStreet.trim(),
-    billingCity: billingCity.trim(),
-    billingState: billingState.trim(),
-    billingZip: billingZip.trim(),
-    billingCountry: billingCountry.trim(),
-    billingPhone: billingPhone.trim(),
-    mfaEnabled,
-    allowedMfa,
-    isActive,
+  // --- Updated: Logo Upload Using Existing Endpoint ---  
+  // Note: We update the URL so that it matches our backend route, which is mounted at "/api/upload" and defined as "/upload/:tenantId/logo"
+  // The full URL becomes: /api/upload/upload/:tenantId/logo
+  const handleLogoUpload = async (tenantId) => {
+    if (!logo) return null;
+    const formData = new FormData();
+    formData.append("logo", logo);
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/upload/${tenantId}/logo`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+      const data = await response.json();
+      if (!response.ok)
+        throw new Error(data.error || "Logo upload failed");
+      console.log("[DEBUG] Logo uploaded. URL:", data.logoUrl);
+      return data.logoUrl;
+    } catch (error) {
+      console.error("[ERROR] Logo upload error:", error);
+      alert("Logo update failed: " + error.message);
+      return null;
+    }
   };
 
-  // If no new file is selected, use the existing logo URL.
-  if (!logo) {
-    payload.logoUrl = logoPreview;
-  }
+  // Submission handler.
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
 
-  console.log("DEBUG: Mode:", mode, "ID:", initialData.id);
-  console.log("DEBUG: Payload being submitted:", payload);
+    // Build the payload object.
+    const normalizedName = name.trim();
+    const normalizedDomain = domain.trim();
+    const finalIndustry = industry === "Other" ? industryOther.trim() : industry.trim();
+    const payload = {
+      name: normalizedName,
+      domain: normalizedDomain,
+      industry: finalIndustry,
+      subscriptionTier: subscriptionTier.trim(),
+      companyWebsite: companyWebsite.trim(),
+      billingStreet: billingStreet.trim(),
+      billingCity: billingCity.trim(),
+      billingState: billingState.trim(),
+      billingZip: billingZip.trim(),
+      billingCountry: billingCountry.trim(),
+      billingPhone: billingPhone.trim(),
+      mfaEnabled,
+      allowedMfa,
+      isActive,
+    };
 
-  // For 'add' mode, use POST on /api/tenants
-  const url = mode === "add" ? "/api/tenants" : `/api/tenants/${initialData.id}`;
+    console.log("DEBUG: Mode:", mode, " Payload:", payload);
+    const url = mode === "add" ? "/api/tenants" : `/api/tenants/${initialData.id}`;
 
-  try {
-    const response = await fetch(url, {
-      method: mode === "add" ? "POST" : "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error("Error data from server:", errorData);
-      throw new Error(
-        errorData.detail || errorData.error || "Error creating/updating tenant"
-      );
-    }
-    let tenantRecord = await response.json();
-
-    // If there's a new logo file, upload it separately.
-    if (logo) {
-      const formData = new FormData();
-      formData.append("logo", logo);
-      const uploadResponse = await fetch(`/upload/${tenantRecord.id}/logo`, {
-        method: "POST",
-        body: formData,
+    try {
+      const response = await fetch(url, {
+        method: mode === "add" ? "POST" : "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
-      if (!uploadResponse.ok) {
-        const uploadError = await uploadResponse.json();
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error("Error data from server:", errorData);
         throw new Error(
-          uploadError.detail || uploadError.error || "Error uploading logo"
+          errorData.detail || errorData.error || "Error creating/updating tenant"
         );
       }
-      const uploadResult = await uploadResponse.json();
-      tenantRecord.logoUrl = uploadResult.logoUrl;
+      let tenantRecord = await response.json();
+
+      // If a new logo file was selected, upload it using the updated endpoint.
+      if (logo) {
+        const uploadedLogoUrl = await handleLogoUpload(tenantRecord.id);
+        if (uploadedLogoUrl) {
+          tenantRecord.logoUrl = uploadedLogoUrl;
+        }
+      }
+
+      onSubmit(tenantRecord);
+      onClose();
+    } catch (error) {
+      console.error("Submission error:", error);
+      if (error.message.includes("duplicate key")) {
+        alert(
+          "A tenant with this name already exists. Please choose a different name or edit the existing tenant."
+        );
+      } else {
+        alert(error.message);
+      }
+    } finally {
+      setSubmitting(false);
     }
-    // Pass the newly created tenant record to the parent's callback.
-    onSubmit(tenantRecord);
-    onClose();
-  } catch (error) {
-    console.error("Submission error:", error);
-    if (error.message.includes("duplicate key")) {
-      alert(
-        "A tenant with this name already exists. Please choose a different name or edit the existing tenant."
-      );
-    } else {
-      alert(error.message);
-    }
-  } finally {
-    setSubmitting(false);
-  }
-};
+  };
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="3xl" isCentered>
@@ -373,6 +384,7 @@ const handleSubmit = async (e) => {
                   />
                 </FormControl>
               </Box>
+
               {/* Right Column: Billing Information */}
               <Box>
                 <FormControl isRequired>
@@ -434,7 +446,7 @@ const handleSubmit = async (e) => {
                     onChange={(e) => setBillingPhone(e.target.value)}
                   />
                 </FormControl>
-                {/* Toggle for Active Status */}
+                {/* Active Tenant Toggle */}
                 <FormControl display="flex" alignItems="center" mt={4}>
                   <FormLabel mb="0">Active Tenant?</FormLabel>
                   <Switch

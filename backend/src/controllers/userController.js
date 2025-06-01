@@ -54,34 +54,72 @@ const getUserProfile = asyncHandler(async (req, res) => {
 // GET /api/users - Fetch all users.
 // For SuperAdmin, this returns all users (with Tenant and Role associations) across tenants.
 // For non-SuperAdmin, it returns users filtered by tenant.
+// Make sure to import your sequelize instance and QueryTypes:
+const { sequelize } = require("../config/db");
+const { QueryTypes } = require("sequelize");
+
 const getUsers = asyncHandler(async (req, res) => {
   console.log("🔍 [DEBUG] ======== ENTER getUsers ========");
   
-  // Quick sanity-check now that we import from index:
-  console.log("🔍 [DEBUG] Tenant instanceof Model:", Tenant.prototype instanceof require("sequelize").Model);
+  // Quick sanity-check for the Tenant model.
+  console.log(
+    "🔍 [DEBUG] Tenant instanceof Model:",
+    Tenant.prototype instanceof require("sequelize").Model
+  );
   console.log("🔍 [DEBUG] Tenant.getTableName():", Tenant.getTableName());
   
-  // … rest of your existing getUsers code, unchanged …
-  
+  // Log the authenticated user for debugging.
+  console.log("🔍 [DEBUG] req.user:", req.user);
+
   try {
-    const isSuperAdmin = req.user?.role?.name === "SuperAdmin";
+    // Ensure we have role details. If req.user.role is missing or incomplete,
+    // fetch the role from the database.
+    let roleFromToken = req.user.role;
+    if (!roleFromToken || !roleFromToken.name) {
+      console.log("[DEBUG] Role object missing from token. Fetching role from DB for roleId:", req.user.roleId);
+      roleFromToken = await Role.findByPk(req.user.roleId);
+      console.log("[DEBUG] Fetched role:", roleFromToken);
+    }
+    
+    const isSuperAdmin = roleFromToken && roleFromToken.name === "SuperAdmin";
+    console.log("[DEBUG] isSuperAdmin:", isSuperAdmin);
+    
     let users;
+    // Base query options: exclude password, eager load Tenant and Role, disable paranoid filtering.
     const baseOptions = {
       attributes: { exclude: ["password"] },
       include: [
-        { model: Tenant, as: "tenant", attributes: ["id", "name"], required: false },
-        { model: Role,   as: "role",   attributes: ["id", "name"], required: false },
+        {
+          model: Tenant,
+          as: "tenant",
+          attributes: ["id", "name"],
+          required: false,
+        },
+        {
+          model: Role,
+          as: "role",
+          attributes: ["id", "name"],
+          required: false,
+        },
       ],
       logging: console.log.bind(console, "🔍 [SQL]"),
+      paranoid: false,
     };
 
     if (isSuperAdmin) {
-      console.log("[DEBUG] SuperAdmin – no tenant filter");
-      users = await User.findAll(baseOptions);
+      console.log("[DEBUG] SuperAdmin branch – retrieving ALL users (clearing any default scopes).");
+      // Retrieve all users without any tenant filtering.
+      users = await User.unscoped().findAll({
+        where: {},
+        ...baseOptions,
+      });
     } else {
       const tokenTenant = req.user?.tenantId || req.user?.companyId;
-      if (!tokenTenant) throw new Error("Tenant identification missing");
-      console.log("[DEBUG] Non-SuperAdmin – filtering by tenant:", tokenTenant);
+      if (!tokenTenant) {
+        console.error("[ERROR] No tenant identification found in token.");
+        throw new Error("Tenant identification missing");
+      }
+      console.log("[DEBUG] Non-SuperAdmin branch – filtering users by tenant:", tokenTenant);
       users = await User.findAll({
         ...baseOptions,
         where: { tenantId: tokenTenant },
@@ -89,6 +127,7 @@ const getUsers = asyncHandler(async (req, res) => {
     }
 
     console.log("[DEBUG] Successfully fetched users:", users.length);
+    console.log("[DEBUG] User IDs fetched:", users.map((u) => u.id).join(", "));
     return res.json(users);
   } catch (error) {
     console.error("[ERROR] getUsers failed:", error);
@@ -98,6 +137,8 @@ const getUsers = asyncHandler(async (req, res) => {
     });
   }
 });
+
+
 
 // PUT /api/users/profile - Update user profile including optional avatar upload and password update
 const updateUserProfile = asyncHandler(async (req, res) => {
@@ -252,190 +293,370 @@ const updateUserProfile = asyncHandler(async (req, res) => {
 });
 
 // POST /api/users - Create a new user
+// POST /api/users - Create a new user
 const createUser = asyncHandler(async (req, res) => {
-  const { firstName, lastName, email, tenantId, roleId, password, mfaEnabled, mfaType } = req.body;
-  
+  console.log("[DEBUG] Received req.body in createUser:", req.body);
+  console.log("[DEBUG] req.user in createUser:", req.user);
+  console.log("[DEBUG] req.user.dataValues:", req.user.dataValues);
+  console.log("[DEBUG] req.file:", req.file); // Debug uploaded file info
+
+  const { firstName, lastName, email, tenantId, roleId, password, mfaEnabled } = req.body;
+  let mfaTypeInput = req.body.mfaType; // Expected to be sent as a JSON string or an array
+
   // Validate required fields.
   if (!tenantId || !roleId || !firstName || !lastName || !email || !password) {
     res.status(400);
     throw new Error("Missing required fields");
   }
-  
-  // Get tenant identifier from the token.
+
+  // Get tenant identifier from token.
   const tokenTenant = req.user.companyID || req.user.companyId || req.user.tenantId;
   if (!tokenTenant) {
     res.status(400);
     throw new Error("Tenant identification is missing in token");
   }
-  
-  // Enforce SaaS isolation: The tenantId in the request must match the token's tenant.
-  if (tenantId !== tokenTenant) {
+
+  // Explicitly fetch the creating user's role from the DB.
+  const creatingUserRole = await Role.findByPk(req.user.roleId);
+  console.log("[DEBUG] Creating user's role (fetched from DB):", creatingUserRole);
+  const roleName = creatingUserRole ? creatingUserRole.name : undefined;
+  console.log("[DEBUG] Role name from token (via DB):", roleName);
+
+  // Enforce SaaS isolation only for non-SuperAdmin users.
+  if (roleName !== "SuperAdmin" && tenantId !== tokenTenant) {
     res.status(400);
     throw new Error("Tenant mismatch: You can only create users within your own tenant");
   }
-  
+
   // Validate the tenant and ensure it is active.
   const tenant = await Tenant.findByPk(tenantId);
   if (!tenant || !tenant.isActive) {
     res.status(400);
     throw new Error("Invalid or inactive tenant");
   }
-  
+
   // Validate that the role exists.
   const role = await Role.findByPk(roleId);
   if (!role) {
     res.status(400);
     throw new Error("Invalid role selection");
   }
-  
+
   // Ensure no user already exists with the same email in this tenant.
   const existingUser = await User.findOne({ where: { email, tenantId } });
   if (existingUser) {
     res.status(400);
     throw new Error("User with this email already exists in the tenant");
   }
-  
+
+  // Process MFA type.
+  let processedMfaType = null;
+  if (mfaEnabled && mfaTypeInput) {
+    try {
+      // If the input is a string, parse it; otherwise, assume it's already an array.
+      const parsed =
+        typeof mfaTypeInput === "string"
+          ? JSON.parse(mfaTypeInput)
+          : mfaTypeInput;
+      // Ensure that we end up with an array.
+      if (Array.isArray(parsed)) {
+        processedMfaType = parsed;
+      } else {
+        processedMfaType = [parsed];
+      }
+    } catch (err) {
+      console.error("[DEBUG] Error parsing mfaType:", err);
+      processedMfaType = Array.isArray(mfaTypeInput)
+        ? mfaTypeInput
+        : [mfaTypeInput];
+    }
+  }
+  console.log("[DEBUG] Processed MFA type to be saved:", processedMfaType);
+
+  // Process the avatar.
+  // If an avatar URL is provided in req.body.avatar (from your dedicated upload endpoint), use that.
+  // Otherwise, if a file was uploaded through multer, use its file path.
+  let avatarPath = null;
+  if (req.body.avatar) {
+    avatarPath = req.body.avatar;
+    console.log("[DEBUG] Avatar URL from req.body:", avatarPath);
+  } else if (req.file) {
+    avatarPath = req.file.path; // Ensure your multer middleware stores the file path.
+    // Prepend a slash if it's not present to form a proper relative URL.
+    if (!avatarPath.startsWith("/")) {
+      avatarPath = "/" + avatarPath;
+    }
+    console.log("[DEBUG] Avatar file path from multer:", avatarPath);
+  } else {
+    console.log("[DEBUG] No avatar provided.");
+  }
+
   const hashedPassword = await bcrypt.hash(password, 10);
   const newUser = await User.create({
     firstName,
     lastName,
     email,
-    tenantId, // validated to match tokenTenant
+    tenantId,
     roleId,
     password: hashedPassword,
     mfaEnabled,
-    mfaType: mfaEnabled ? mfaType : null,
+    mfaType: processedMfaType, // stored as an array
+    avatar: avatarPath
   });
-  debugLog("[DEBUG] New user created:", newUser.toJSON());
+
+  // Re-fetch the newly created user including associations so that tenant & role details are available.
+  const createdUser = await User.findByPk(newUser.id, {
+    include: [
+      { model: Tenant, as: "tenant", attributes: ["id", "name"] },
+      { model: Role, as: "role", attributes: ["id", "name"] }
+    ]
+  });
+
+  debugLog("[DEBUG] New user created:", createdUser.toJSON());
   res.status(201).json({
     message: "User created successfully",
-    user: { ...newUser.toJSON(), password: undefined },
+    user: { ...createdUser.toJSON(), password: undefined }
   });
+});
+
+// DELETE /api/users/:id - Delete a user
+const deleteUser = asyncHandler(async (req, res) => {
+  const userId = req.params.id;
+  console.log(`[DEBUG] Attempting to delete user with id: ${userId}`);
+
+  // Find the user by primary key and include role to check if the user is a SuperAdmin.
+  const userToDelete = await User.findByPk(userId, {
+    include: [
+      { model: Role, as: "role", attributes: ["id", "name"] }
+    ],
+  });
+  
+  if (!userToDelete) {
+    console.error(`[ERROR] User not found with id: ${userId}`);
+    res.status(404);
+    throw new Error("User not found");
+  }
+
+  // Prevent deletion of a SuperAdmin user.
+  if (userToDelete.role && userToDelete.role.name === "SuperAdmin") {
+    console.error("[ERROR] SuperAdmin user cannot be deleted");
+    res.status(403);
+    throw new Error("SuperAdmin user cannot be deleted");
+  }
+  
+  // Optionally, you might want to add tenant-based checks here if needed.
+  // For example, non-SuperAdmin users could delete only users in their own tenant.
+  
+  await userToDelete.destroy();
+  console.log(`[DEBUG] User with id ${userId} deleted successfully`);
+  res.status(200).json({ message: "User deleted successfully" });
 });
 
 // PUT /api/users/:id/status — Toggle isActive (Admins only, with tenant isolation)
+// PUT /api/users/:id/status - update user status
+// PUT /api/users/:id/status - update user status
 const updateUserStatus = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  const tokenTenant = req.user.tenantId || req.user.companyId || req.user.companyID;
-  const isSuperAdmin = req.user?.role?.name === "SuperAdmin";
-
   console.log("[DEBUG] Entering updateUserStatus...");
-  console.log("[DEBUG] Authenticated user tenant:", tokenTenant);
-  console.log("[DEBUG] Is SuperAdmin:", isSuperAdmin);
 
-  // 1) Load target user
-const user = await User.findByPk(id, {
-  attributes: ["id", "tenantId", "firstName", "lastName", "email", "avatar", "isActive"],
-  include: [
-    { model: Role, as: "role", attributes: ["id", "name"] },
-    { model: Tenant, as: "tenant", attributes: ["id", "name"] }, // ✅ Ensure tenant is fetched
-  ],
-});
-
-  if (!user) {
-    console.error("[ERROR] User not found.");
-    return res.status(404).json({ message: "User not found" });
-  }
-
-  console.log("[DEBUG] Target user tenant:", user.tenantId);
-  console.log("[DEBUG] Target user role:", user.role?.name);
-
-  // 2) Prevent toggling SuperAdmin
-  if (user.role?.name === "SuperAdmin") {
-    console.error("[ERROR] Cannot disable SuperAdmin.");
-    return res.status(403).json({ message: "Cannot change status of a SuperAdmin" });
-  }
-
-  // 3) Enforce SaaS Tenant Isolation — Only allow actions within own tenant
-  if (!isSuperAdmin && user.tenantId !== tokenTenant) {
-    console.error("[ERROR] Tenant isolation violation.");
-    return res.status(403).json({ message: "You can only update users within your own tenant" });
-  }
-
-  // 4) Flip status and save
-  const newStatus = typeof req.body.isActive === "boolean" ? req.body.isActive : !user.isActive;
-  user.isActive = newStatus;
-  await user.save();
-
-  console.log("[DEBUG] Updated user status:", newStatus);
-
-  return res.json({
-    message: `User ${newStatus ? "enabled" : "disabled"} successfully`,
-    user: { id: user.id, isActive: user.isActive },
+  // The auth middleware decoded token is in req.user but might be incomplete.
+  // Re-fetch the current user from the database to get full details (including role).
+  const currentUserToken = req.user; // e.g., { id, email, companyID }
+  const currentUser = await User.findByPk(currentUserToken.id, {
+    include: [{ model: Role, as: "role", attributes: ["id", "name"] }],
   });
-});
+  if (!currentUser) {
+    res.status(404);
+    throw new Error("Authenticated user not found");
+  }
 
-// PUT /api/users/:id — tenant-isolated + avatar upload
-const updateUser = asyncHandler(async (req, res) => {
-  const fs = require("fs");
-  const path = require("path");
+  const { isActive } = req.body;
+  const targetUserId = req.params.id;
 
-  const { id } = req.params;
-  const { firstName, lastName, roleId, mfaEnabled, mfaType, isActive } = req.body;
-  const tokenTenant = req.user.tenantId;
-  const isSuperAdmin = req.user.role?.name === "SuperAdmin";
-
-  // ✅ Fetch user and ensure avatar is loaded
-  const user = await User.findByPk(id, {
-    attributes: ["id", "tenantId", "firstName", "lastName", "avatar", "isActive"],
-    include: [{ model: Role, as: "role", attributes: ["name"] }],
+  // Fetch target user along with its role and tenant info.
+  const targetUser = await User.findByPk(targetUserId, {
+    include: [
+      { model: Role, as: "role", attributes: ["id", "name"] },
+      { model: Tenant, as: "tenant", attributes: ["id", "name"] },
+    ],
   });
-
-  if (!user) return res.status(404).json({ message: "User not found" });
-
-  if (!isSuperAdmin && user.tenantId !== tokenTenant) {
-    return res.status(403).json({ message: "You can only modify users within your own tenant" });
+  if (!targetUser) {
+    res.status(404);
+    throw new Error("Target user not found");
   }
 
-  if (user.role.name === "SuperAdmin" && isActive === false) {
-    return res.status(403).json({ message: "Cannot disable a SuperAdmin" });
-  }
+  // Determine current user role and tenant.
+  const currentUserRole = currentUser.role ? currentUser.role.name : null;
+  const currentUserTenant =
+    currentUser.tenantId || currentUser.companyID || currentUser.companyId;
 
-  // ✅ Correct the file path resolution
-  if (user.avatar) {
-    const oldAvatarPath = path.join(process.cwd(), "uploads", user.avatar.replace("/uploads/", ""));
-    console.log("[DEBUG] Attempting to delete old avatar:", oldAvatarPath);
+  // Determine target user tenant and role.
+  const targetTenantId = targetUser.tenantId;
+  const targetRoleName = targetUser.role ? targetUser.role.name : null;
 
-    if (fs.existsSync(oldAvatarPath)) {
-      try {
-        fs.unlinkSync(oldAvatarPath);
-        console.log("[DEBUG] Previous profile picture deleted:", oldAvatarPath);
-      } catch (err) {
-        console.error("[ERROR] Failed to delete previous profile picture:", err);
-      }
-    } else {
-      console.warn("[WARN] Previous profile picture not found:", oldAvatarPath);
+  console.log("[DEBUG] Authenticated user:", currentUser.toJSON());
+  console.log("[DEBUG] Current user role:", currentUserRole);
+  console.log("[DEBUG] Current user tenant:", currentUserTenant);
+  console.log("[DEBUG] Target user tenant:", targetTenantId);
+  console.log("[DEBUG] Target user role:", targetRoleName);
+
+  // Enforce rules:
+  // 1. If current user is not SuperAdmin, tenant must match.
+  if (currentUserRole !== "SuperAdmin") {
+    if (currentUserTenant !== targetTenantId) {
+      res.status(403);
+      throw new Error("You can only update users within your own tenant");
+    }
+  } else {
+    // 2. If current user is SuperAdmin, disallow updates on SuperAdmin targets.
+    if (targetRoleName === "SuperAdmin") {
+      res.status(403);
+      throw new Error("SuperAdmin cannot update another SuperAdmin user");
     }
   }
 
-  // ✅ Save the new profile picture (if uploaded)
-  if (req.file) {
-    user.avatar = `/uploads/${tokenTenant}/profile/${req.file.filename}`;
+  // Update the target user's status.
+  targetUser.isActive = isActive;
+  await targetUser.save();
+
+  console.log("[DEBUG] User status updated successfully for user:", targetUser.id);
+  res.status(200).json({ message: "User status updated successfully" });
+});
+
+// PUT /api/users/:id — tenant-isolated + avatar upload
+// PUT /api/users/:id - Update an existing user
+// PUT /api/users/:id - Update an existing user
+const updateUser = asyncHandler(async (req, res) => {
+  console.log("[DEBUG] Received req.body in updateUser:", req.body);
+  console.log("[DEBUG] req.user in updateUser:", req.user);
+
+  const { id } = req.params;
+  let {
+    firstName,
+    lastName,
+    email,
+    tenantId,
+    roleId,
+    password,
+    mfaEnabled,
+    mfaType,
+    // other possible fields
+  } = req.body;
+
+  // Get the tenant id from the token (this is the enforced tenant for non-SuperAdmin users)
+  const tokenTenant = req.user.companyID || req.user.companyId || req.user.tenantId;
+  if (!tokenTenant) {
+    res.status(400);
+    throw new Error("Tenant identification is missing in token");
   }
 
-  if (firstName) user.firstName = firstName;
-  if (lastName) user.lastName = lastName;
-  if (roleId) user.roleId = roleId;
-  user.mfaEnabled = mfaEnabled;
-  user.mfaType = mfaEnabled ? mfaType : null;
-  user.isActive = typeof isActive === "boolean" ? isActive : user.isActive;
+  // Fetch the logged-in user's role from the DB.
+  const updatingUserRole = await Role.findByPk(req.user.roleId);
+  const roleName = updatingUserRole ? updatingUserRole.name : undefined;
+  console.log("[DEBUG] Logged-in user's role (fetched from DB):", updatingUserRole);
+  console.log("[DEBUG] Role name from token (via DB):", roleName);
 
-  await user.save();
+  // For non-SuperAdmin users, enforce that the tenantId is the same as the token's tenant.
+  if (roleName !== "SuperAdmin") {
+    if (tenantId && tenantId !== tokenTenant) {
+      console.log(
+        `[DEBUG] Overriding tenantId ${tenantId} with token tenant ${tokenTenant} for non-SuperAdmin update`
+      );
+    }
+    tenantId = tokenTenant;
+    req.body.tenantId = tokenTenant;
+  } else {
+    // For SuperAdmin, we still require a valid tenant.
+    if (!tenantId) {
+      res.status(400);
+      throw new Error("Tenant must be provided when updating user as SuperAdmin");
+    }
+  }
 
-  return res.json({
+  // Validate that the target user exists.
+  const user = await User.findByPk(id);
+  if (!user) {
+    res.status(404);
+    throw new Error("User not found");
+  }
+
+  // Process MFA type similarly to creation.
+  let processedMfaType = null;
+  if (mfaEnabled && mfaType) {
+    try {
+      const parsed = typeof mfaType === "string" ? JSON.parse(mfaType) : mfaType;
+      processedMfaType = Array.isArray(parsed) ? parsed : [parsed];
+    } catch (err) {
+      console.error("[DEBUG] Error parsing mfaType in update:", err);
+      processedMfaType = Array.isArray(mfaType) ? mfaType : [mfaType];
+    }
+    req.body.mfaType = processedMfaType;
+    console.log("[DEBUG] Processed MFA type to be saved:", processedMfaType);
+  }
+
+  // Process the avatar.
+  // If the front end sent an avatar URL (e.g. from a prior upload), use it.
+  // Otherwise, if a file was uploaded via multer, use its file path.
+  if (req.body.avatar) {
+    console.log("[DEBUG] Using avatar URL from req.body:", req.body.avatar);
+  } else if (req.file) {
+    let avatarPath = req.file.path;
+    if (!avatarPath.startsWith("/")) {
+      avatarPath = "/" + avatarPath;
+    }
+    req.body.avatar = avatarPath;
+    console.log("[DEBUG] Using avatar file path from multer:", avatarPath);
+  } else {
+    console.log("[DEBUG] No avatar provided in update payload.");
+  }
+
+  // If a new avatar is provided and the user already has an avatar,
+  // delete the old avatar file from disk.
+  const newAvatar = req.body.avatar;
+  if (
+    newAvatar &&
+    user.avatar &&
+    user.avatar !== newAvatar &&
+    user.avatar.startsWith("/uploads/")
+  ) {
+    // Remove the leading slash and build the file-system path.
+    const oldAvatarRelative = user.avatar.startsWith("/")
+      ? user.avatar.substring(1)
+      : user.avatar;
+    // __dirname is "backend/src/controllers", so use two levels up.
+    const oldAvatarFullPath = path.join(__dirname, "..", "..", oldAvatarRelative);
+    fs.unlink(oldAvatarFullPath, (err) => {
+      if (err) {
+        console.error("[ERROR] Failed to delete old avatar file:", err);
+      } else {
+        console.log("[DEBUG] Successfully deleted old avatar file:", oldAvatarFullPath);
+      }
+    });
+  }
+
+  // If a new password is provided, hash it; otherwise, leave unchanged.
+  if (password) {
+    req.body.password = await bcrypt.hash(password, 10);
+  } else {
+    delete req.body.password;
+  }
+
+  // Update the user with the provided fields.
+  await user.update(req.body);
+
+  // Re-fetch the updated user including tenant & role associations.
+  const updatedUser = await User.findByPk(id, {
+    include: [
+      { model: Tenant, as: "tenant", attributes: ["id", "name"] },
+      { model: Role, as: "role", attributes: ["id", "name"] },
+    ],
+  });
+
+  console.log("[DEBUG] Updated user:", updatedUser.toJSON());
+  res.status(200).json({
     message: "User updated successfully",
-    user: {
-      id: user.id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-      tenant: user.tenant ? { id: user.tenant.id, name: user.tenant.name } : null, // ✅ Fix tenant mapping
-      role: user.role ? { id: user.role.id, name: user.role.name } : null,
-      avatar: user.avatar,
-      isActive: user.isActive,
-    },
+    user: { ...updatedUser.toJSON(), password: undefined },
   });
 });
 
 
-module.exports = { getRoles, getUserProfile, getUsers, updateUserProfile, createUser, updateUserStatus, updateUser };
+module.exports = { getRoles, getUserProfile, getUsers, updateUserProfile, createUser, updateUserStatus, updateUser, deleteUser };

@@ -54,30 +54,37 @@ const TopBar = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
 
   // On mount, if no user found in the AuthContext, fetch the full profile
-  useEffect(() => {
-    async function fetchProfile() {
-      try {
-        const token = localStorage.getItem("authToken");
-        if (!token) return;
-        console.log("[DEBUG] Fetching full profile for TopBar...");
-        const response = await fetch(`${API_URL}/api/users/profile`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (response.ok) {
-          const profileData = await response.json();
-          console.log("[DEBUG] Fetched user profile:", profileData);
-          setUser(profileData);
-        } else {
-          console.error("Failed to fetch profile:", response.statusText);
-        }
-      } catch (error) {
-        console.error("Error fetching profile:", error);
+useEffect(() => {
+  async function fetchProfile() {
+    try {
+      const token = localStorage.getItem("authToken");
+      if (!token) return;
+
+      console.log("[DEBUG] Fetching full profile for TopBar...");
+      const response = await fetch(`${API_URL}/api/users/profile`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.ok) {
+        const profileData = await response.json();
+        console.log("[DEBUG] Fetched user profile:", profileData);
+        
+        // Immediately update user state
+        setUser(profileData);
+      } else {
+        console.error("Failed to fetch profile:", response.statusText);
       }
+    } catch (error) {
+      console.error("Error fetching profile:", error);
     }
-    if (!user) {
-      fetchProfile();
-    }
-  }, [user, setUser]);
+  }
+
+  // Run fetchProfile after login state changes
+  if (!user) {
+    fetchProfile();
+  }
+}, [user, setUser]);
+
 
   // Update local state when the global user changes
   useEffect(() => {
