@@ -40,37 +40,42 @@ import {
   EditIcon,
   DeleteIcon,
   TriangleUpIcon,
-  TriangleDownIcon
+  TriangleDownIcon,
+  InfoIcon
 } from "@chakra-ui/icons";
 import AdminLayout from "../components/AdminLayout";
 import SubscriptionFormModal from "../components/SubscriptionFormModal";
+import SubscriptionDetailModal from "../components/SubscriptionDetailModal";
+
+// Import Recharts components for analytics charts
+import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
 
 const SubscriptionManagement = () => {
-  // Basic state and fetching
+  // Basic state & data fetching
   const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Search input and additional filters
+  // Basic search input
   const [searchTerm, setSearchTerm] = useState("");
+
+  // Additional Filters
   const [filterStatus, setFilterStatus] = useState(""); // "", "active", "deprecated", "suspended"
   const [filterDuration, setFilterDuration] = useState(""); // "", "monthly", "yearly"
   const [filterAutoRenew, setFilterAutoRenew] = useState(""); // "", "true", "false"
 
-  // Pagination
+  // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
 
-  // Modal state for add/edit and bulk edit
+  // Modal state for add/edit
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSubscription, setEditingSubscription] = useState(null);
-  const [isBulkEditModalOpen, setIsBulkEditModalOpen] = useState(false);
-  const [bulkEditData, setBulkEditData] = useState({
-    status: "",
-    duration: "",
-    price: ""
-  });
 
-  // Delete confirmation for single deletion
+  // Bulk edit state
+  const [isBulkEditModalOpen, setIsBulkEditModalOpen] = useState(false);
+  const [bulkEditData, setBulkEditData] = useState({ status: "", duration: "", price: "" });
+
+  // Delete confirmation dialog for single deletion
   const [deleteAlertOpen, setDeleteAlertOpen] = useState(false);
   const [subscriptionToDelete, setSubscriptionToDelete] = useState(null);
   const deleteCancelRef = useRef();
@@ -80,6 +85,10 @@ const SubscriptionManagement = () => {
   const [bulkDeleteAlertOpen, setBulkDeleteAlertOpen] = useState(false);
   const bulkDeleteCancelRef = useRef();
 
+  // Detail view modal state
+  const [detailModalSubscription, setDetailModalSubscription] = useState(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+
   // Advanced Sorting States
   const [primarySortKey, setPrimarySortKey] = useState("name");
   const [sortPrimaryDirection, setSortPrimaryDirection] = useState("asc");
@@ -88,7 +97,7 @@ const SubscriptionManagement = () => {
 
   const toast = useToast();
 
-  // Fetch subscriptions from API on mount
+  // Fetch subscriptions from API on mount.
   useEffect(() => {
     async function fetchSubscriptions() {
       try {
@@ -114,12 +123,10 @@ const SubscriptionManagement = () => {
     fetchSubscriptions();
   }, [toast]);
 
-  // Combine basic search and additional filters
+  // Combine basic search and additional filters.
   const filteredSubscriptions = useMemo(() => {
     return subscriptions.filter((sub) => {
-      const matchesName = (sub.name ? sub.name.toLowerCase() : "").includes(
-        searchTerm.toLowerCase()
-      );
+      const matchesName = (sub.name ? sub.name.toLowerCase() : "").includes(searchTerm.toLowerCase());
       const matchesStatus = filterStatus === "" || sub.status === filterStatus;
       const matchesDuration = filterDuration === "" || sub.duration === filterDuration;
       let matchesAutoRenew = true;
@@ -131,7 +138,7 @@ const SubscriptionManagement = () => {
     });
   }, [subscriptions, searchTerm, filterStatus, filterDuration, filterAutoRenew]);
 
-  // Multi-parameter sorting
+  // Multi-parameter sorting.
   const sortedSubscriptions = useMemo(() => {
     const subs = [...filteredSubscriptions];
     subs.sort((a, b) => {
@@ -171,22 +178,16 @@ const SubscriptionManagement = () => {
       return result;
     });
     return subs;
-  }, [
-    filteredSubscriptions,
-    primarySortKey,
-    sortPrimaryDirection,
-    secondarySortKey,
-    sortSecondaryDirection
-  ]);
+  }, [filteredSubscriptions, primarySortKey, sortPrimaryDirection, secondarySortKey, sortSecondaryDirection]);
 
-  // Pagination calculations
+  // Pagination calculations.
   const totalPages = Math.ceil(sortedSubscriptions.length / pageSize);
   const paginatedSubscriptions = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     return sortedSubscriptions.slice(start, start + pageSize);
   }, [sortedSubscriptions, currentPage]);
 
-  // Handler for clicking a column header to update primary sort
+  // Handler for clicking a column header to update primary sort.
   const handleSort = (key) => {
     if (primarySortKey === key) {
       setSortPrimaryDirection((prev) => (prev === "asc" ? "desc" : "asc"));
@@ -196,9 +197,8 @@ const SubscriptionManagement = () => {
     }
   };
 
-  // ---- Function declarations (hoisted) ----
+  // ---- Function declarations ----
 
-  // Open add/edit modal for a single subscription
   function openEditModal(subscription) {
     setEditingSubscription(subscription);
     setIsModalOpen(true);
@@ -209,7 +209,6 @@ const SubscriptionManagement = () => {
     setIsModalOpen(false);
   }
 
-  // Open delete confirmation for a single subscription
   function openDeleteDialog(subscription) {
     setSubscriptionToDelete(subscription);
     setDeleteAlertOpen(true);
@@ -226,9 +225,7 @@ const SubscriptionManagement = () => {
         headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` }
       });
       if (!res.ok) throw new Error("Failed to delete subscription");
-      setSubscriptions((prev) =>
-        prev.filter((sub) => sub.id !== subscriptionToDelete.id)
-      );
+      setSubscriptions((prev) => prev.filter((sub) => sub.id !== subscriptionToDelete.id));
       toast({
         title: "Deleted",
         description: "Subscription deleted successfully.",
@@ -249,34 +246,26 @@ const SubscriptionManagement = () => {
     }
   }
 
-  // Bulk selection handlers
   function handleSelectAll(e) {
     if (e.target.checked) {
       const currentPageIds = paginatedSubscriptions.map((sub) => sub.id);
-      const newSelected = Array.from(
-        new Set([...selectedSubscriptions, ...currentPageIds])
-      );
+      const newSelected = Array.from(new Set([...selectedSubscriptions, ...currentPageIds]));
       setSelectedSubscriptions(newSelected);
     } else {
       const currentPageIds = paginatedSubscriptions.map((sub) => sub.id);
-      const newSelected = selectedSubscriptions.filter(
-        (id) => !currentPageIds.includes(id)
-      );
+      const newSelected = selectedSubscriptions.filter((id) => !currentPageIds.includes(id));
       setSelectedSubscriptions(newSelected);
     }
   }
 
   function handleSelectOne(id) {
     if (selectedSubscriptions.includes(id)) {
-      setSelectedSubscriptions(
-        selectedSubscriptions.filter((selected) => selected !== id)
-      );
+      setSelectedSubscriptions(selectedSubscriptions.filter((selected) => selected !== id));
     } else {
       setSelectedSubscriptions([...selectedSubscriptions, id]);
     }
   }
 
-  // Bulk deletion handlers
   function openBulkDeleteDialog() {
     setBulkDeleteAlertOpen(true);
   }
@@ -351,7 +340,6 @@ const SubscriptionManagement = () => {
     }
   }
 
-  // Bulk Edit functionality
   function openBulkEditModal() {
     setIsBulkEditModalOpen(true);
   }
@@ -365,14 +353,15 @@ const SubscriptionManagement = () => {
     try {
       const updatePromises = selectedSubscriptions.map((id) =>
         fetch(`/api/subscriptions/${id}`, {
-          method: "PATCH",
+          method: "PUT",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${localStorage.getItem("authToken")}`
           },
           body: JSON.stringify(bulkEditData)
         }).then((res) => {
-          if (!res.ok) throw new Error("Failed to update subscription with id " + id);
+          if (!res.ok)
+            throw new Error("Failed to update subscription with id " + id);
           return res.json();
         })
       );
@@ -403,6 +392,17 @@ const SubscriptionManagement = () => {
       closeBulkEditModal();
     }
   }
+
+  // Detail view modal functions.
+  function openDetailModal(subscription) {
+    setDetailModalSubscription(subscription);
+    setIsDetailModalOpen(true);
+  }
+
+  function closeDetailModal() {
+    setDetailModalSubscription(null);
+    setIsDetailModalOpen(false);
+  }
   // ---- End function declarations ----
 
   return (
@@ -412,6 +412,14 @@ const SubscriptionManagement = () => {
         <ChakraText color="gray.600" mb={4}>
           Manage your subscription plans.
         </ChakraText>
+
+        {/* Reports & Analytics Section */}
+        <Box mb={6} p={4} borderWidth={1} borderRadius="md" boxShadow="sm">
+          <Heading as="h3" size="md" mb={4}>
+            Reports & Analytics
+          </Heading>
+          <SubscriptionAnalytics subscriptions={subscriptions} />
+        </Box>
 
         {/* Top Row: Search, Filters & Add Subscription */}
         <Flex mb={4} align="center" justify="space-between" flexWrap="nowrap">
@@ -567,11 +575,9 @@ const SubscriptionManagement = () => {
         ) : (
           <>
             <TableContainer>
-              {/* Set border spacing to 0 to remove extra gaps */}
               <Table variant="simple" sx={{ borderSpacing: 0 }}>
                 <Thead>
                   <Tr>
-                    {/* Checkbox cell: reduced padding and minimal width */}
                     <Th p={0} minW="30px">
                       <Checkbox
                         size="sm"
@@ -622,7 +628,10 @@ const SubscriptionManagement = () => {
                           <TriangleDownIcon ml={1} />
                         ))}
                     </Th>
-                    <Th p={1}>Actions</Th>
+                    {/* Actions column now right aligned */}
+                    <Th p={1} textAlign="right" pr={4}>
+                      Actions
+                    </Th>
                   </Tr>
                 </Thead>
                 <Tbody>
@@ -652,7 +661,14 @@ const SubscriptionManagement = () => {
                         <Td p={1} textTransform="capitalize">
                           {sub.status}
                         </Td>
-                        <Td p={1}>
+                        <Td p={1} textAlign="right" pr={4}>
+                          <IconButton
+                            aria-label="View Details"
+                            icon={<InfoIcon />}
+                            size="sm"
+                            mr={2}
+                            onClick={() => openDetailModal(sub)}
+                          />
                           <IconButton
                             aria-label="Edit Subscription"
                             icon={<EditIcon />}
@@ -688,9 +704,7 @@ const SubscriptionManagement = () => {
                 Page {currentPage} of {totalPages || 1}
               </Text>
               <Button
-                onClick={() =>
-                  setCurrentPage((prev) => Math.min(prev + 1, totalPages))
-                }
+                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
                 disabled={currentPage === totalPages || totalPages === 0}
               >
                 Next
@@ -832,8 +846,91 @@ const SubscriptionManagement = () => {
             </ModalContent>
           </Modal>
         )}
+
+        {/* Detail View Modal */}
+        {isDetailModalOpen && (
+          <SubscriptionDetailModal
+            isOpen={isDetailModalOpen}
+            onClose={closeDetailModal}
+            subscription={detailModalSubscription}
+          />
+        )}
       </Box>
     </AdminLayout>
+  );
+};
+
+// --- SubscriptionAnalytics Component ---
+// This component aggregates subscription data and renders summary charts.
+const SubscriptionAnalytics = ({ subscriptions }) => {
+  // Group by plan (using subscription.name as plan type if no explicit plan provided)
+  const planCount = subscriptions.reduce((acc, sub) => {
+    const plan = sub.plan || sub.name;
+    acc[plan] = (acc[plan] || 0) + 1;
+    return acc;
+  }, {});
+  const planData = Object.entries(planCount).map(([plan, count]) => ({ plan, count }));
+
+  // Sum revenue by plan
+  const revenueByPlan = subscriptions.reduce((acc, sub) => {
+    const plan = sub.plan || sub.name;
+    acc[plan] = (acc[plan] || 0) + Number(sub.price);
+    return acc;
+  }, {});
+  const revenueData = Object.entries(revenueByPlan).map(([plan, revenue]) => ({ plan, revenue }));
+
+  // Count upcoming renewals: renewalDate exists and within next 30 days
+  const now = new Date();
+  const upcomingRenewals = subscriptions.filter((sub) => {
+    if (!sub.renewalDate) return false;
+    const renewalDate = new Date(sub.renewalDate);
+    const diffDays = (renewalDate - now) / (1000 * 60 * 60 * 24);
+    return diffDays >= 0 && diffDays <= 30;
+  }).length;
+
+  return (
+    <Box>
+      <Flex mb={4} justify="space-between">
+        <Box>
+          <Text fontSize="lg" fontWeight="bold">
+            Upcoming Renewals
+          </Text>
+          <Text fontSize="2xl" color="blue.600">
+            {upcomingRenewals}
+          </Text>
+        </Box>
+      </Flex>
+      <Flex direction={{ base: "column", md: "row" }} gap={6}>
+        <Box flex={1} height={250}>
+          <Text fontSize="md" mb={2} textAlign="center" fontWeight="semibold">
+            Subscriptions per Plan
+          </Text>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={planData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="plan" />
+              <YAxis />
+              <Tooltip />
+              <Bar dataKey="count" fill="#3182ce" />
+            </BarChart>
+          </ResponsiveContainer>
+        </Box>
+        <Box flex={1} height={250}>
+          <Text fontSize="md" mb={2} textAlign="center" fontWeight="semibold">
+            Revenue per Plan ($)
+          </Text>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={revenueData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="plan" />
+              <YAxis />
+              <Tooltip />
+              <Bar dataKey="revenue" fill="#2f855a" />
+            </BarChart>
+          </ResponsiveContainer>
+        </Box>
+      </Flex>
+    </Box>
   );
 };
 

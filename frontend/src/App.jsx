@@ -5,7 +5,7 @@ import Login from "./pages/Login";
 import MfaScreen from "./pages/MfaScreen";
 import ForgotPassword from "./pages/ForgotPassword";
 import AdminDashboard from "./pages/AdminDashboard";
-import Tenants from "./pages/Tenants";
+import TenantManagement from "./pages/TenantManagement";
 import UserManagement from "./pages/UserManagement";
 import SubscriptionManagement from "./pages/SubscriptionManagement";
 import BillingManagement from "./pages/BillingManagement";
@@ -27,7 +27,7 @@ const App = () => {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         {/* Admin routes */}
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
-        <Route path="/admin/tenants" element={<Tenants />} />
+        <Route path="/admin/tenants" element={<TenantManagement />} />
         <Route path="/admin/users" element={<UserManagement />} />
         <Route path="/admin/Subscriptions" element={<SubscriptionManagement />} />
         <Route path="/admin/Billing" element={<BillingManagement />} />
