@@ -1,14 +1,23 @@
-// src/controllers/subscriptionController.js
+// backend/src/controllers/subscriptionController.js
+
 const asyncHandler = require("express-async-handler");
+const { Op } = require("sequelize");
 const Subscription = require("../models/Subscription");
 const { debugLog } = require("../utils/logger");
 
-// GET /api/subscriptions - Fetch all subscriptions
+/**
+ * GET /api/subscriptions
+ * Fetch all subscription plans.
+ */
 const getSubscriptions = asyncHandler(async (req, res) => {
   console.log("[DEBUG] Executing getSubscriptions function");
+  console.log("[DEBUG] Request Query:", req.query);
   try {
     const subscriptions = await Subscription.findAll();
-    console.log("[DEBUG] Retrieved subscriptions:", subscriptions.map(sub => sub.toJSON()));
+    console.log(
+      `[DEBUG] Retrieved ${subscriptions.length} subscriptions:`,
+      subscriptions.map((sub) => sub.toJSON())
+    );
     res.json(subscriptions);
   } catch (error) {
     console.error("[ERROR] Failed to fetch subscriptions:", error);
@@ -16,28 +25,63 @@ const getSubscriptions = asyncHandler(async (req, res) => {
   }
 });
 
-// POST /api/subscriptions - Create a new subscription (admin-only)
+/**
+ * GET /api/subscriptions/:id
+ * Fetch a single subscription plan by its ID.
+ */
+const getSubscriptionById = asyncHandler(async (req, res) => {
+  console.log("[DEBUG] Executing getSubscriptionById with ID:", req.params.id);
+  try {
+    const subscription = await Subscription.findByPk(req.params.id);
+    if (!subscription) {
+      console.error("[DEBUG] Subscription not found for ID:", req.params.id);
+      return res.status(404).json({ error: "Subscription not found" });
+    }
+    console.log("[DEBUG] Found subscription:", subscription.toJSON());
+    res.json(subscription);
+  } catch (error) {
+    console.error("[ERROR] getSubscriptionById error:", error);
+    res.status(500).json({ message: "Error fetching subscription", error: error.message });
+  }
+});
+
+/**
+ * POST /api/subscriptions
+ * Create a new subscription plan.
+ * Expected body fields:
+ * - name, price, duration (required)
+ * - features, trialPeriodDays, status, autoRenew, renewalDate (optional)
+ */
 const createSubscription = asyncHandler(async (req, res) => {
   console.log("[DEBUG] Executing createSubscription function");
   console.log("[DEBUG] Incoming request body:", req.body);
-
-  const { name, price, duration, features } = req.body;
-
-  if (!name || !price || !duration || !features) {
-    console.error("[ERROR] Missing required fields.");
+  const { name, price, duration, features, trialPeriodDays, status, autoRenew, renewalDate } = req.body;
+  
+  // Validate required fields.
+  if (!name || !price || !duration) {
+    console.error("[ERROR] Missing required fields: name, price, or duration");
     res.status(400);
-    throw new Error("Subscription name, price, duration, and features are required.");
+    throw new Error("Subscription name, price, and duration are required.");
   }
-
+  
   try {
+    // Check for duplicate subscription name (global plans are recommended).
     const existingSubscription = await Subscription.findOne({ where: { name } });
     if (existingSubscription) {
       console.error("[ERROR] Subscription name already exists:", name);
       res.status(400);
       throw new Error("Subscription name already exists.");
     }
-
-    const newSubscription = await Subscription.create({ name, price, duration, features });
+    const newSubscription = await Subscription.create({
+      name,
+      price,
+      duration,
+      features: features || null,
+      trialPeriodDays: trialPeriodDays || null,
+      status: status || "active",
+      autoRenew: typeof autoRenew !== "undefined" ? autoRenew : true,
+      renewalDate: renewalDate || null,
+    });
     console.log("[DEBUG] Created new subscription:", newSubscription.toJSON());
     res.status(201).json(newSubscription);
   } catch (error) {
@@ -46,39 +90,45 @@ const createSubscription = asyncHandler(async (req, res) => {
   }
 });
 
-// PUT /api/subscriptions/:id - Update an existing subscription (admin-only)
+/**
+ * PUT /api/subscriptions/:id
+ * Update an existing subscription plan.
+ */
 const updateSubscription = asyncHandler(async (req, res) => {
   console.log("[DEBUG] Executing updateSubscription function");
   console.log("[DEBUG] Updating subscription ID:", req.params.id);
-  console.log("[DEBUG] Incoming request body:", req.body);
-
-  const { name, price, duration, features } = req.body;
+  console.log("[DEBUG] Incoming update data:", req.body);
   const subscriptionId = req.params.id;
-
   try {
     const subscription = await Subscription.findByPk(subscriptionId);
     if (!subscription) {
-      console.error("[ERROR] Subscription not found:", subscriptionId);
+      console.error("[ERROR] Subscription not found for ID:", subscriptionId);
       res.status(404);
       throw new Error("Subscription not found.");
     }
-
-    if (name) {
-      const nameExists = await Subscription.findOne({ where: { name, id: { $ne: subscriptionId } } });
+    // If updating the name, check for duplicates (exclude current subscription).
+    if (req.body.name && req.body.name !== subscription.name) {
+      const nameExists = await Subscription.findOne({
+        where: { name: req.body.name, id: { [Op.ne]: subscriptionId } },
+      });
       if (nameExists) {
-        console.error("[ERROR] Subscription name already exists:", name);
+        console.error("[ERROR] Subscription name already exists:", req.body.name);
         res.status(400);
         throw new Error("Subscription name already exists.");
       }
-      subscription.name = name;
+      subscription.name = req.body.name;
     }
-
-    if (price) subscription.price = price;
-    if (duration) subscription.duration = duration;
-    if (features) subscription.features = features;
-
+    // Update other fields if they exist in the body.
+    if (req.body.price) subscription.price = req.body.price;
+    if (req.body.duration) subscription.duration = req.body.duration;
+    if (req.body.features) subscription.features = req.body.features;
+    if (typeof req.body.trialPeriodDays !== "undefined") subscription.trialPeriodDays = req.body.trialPeriodDays;
+    if (req.body.status) subscription.status = req.body.status;
+    if (typeof req.body.autoRenew !== "undefined") subscription.autoRenew = req.body.autoRenew;
+    if (req.body.renewalDate) subscription.renewalDate = req.body.renewalDate;
+    
     await subscription.save();
-    console.log("[DEBUG] Updated subscription:", subscription.toJSON());
+    console.log("[DEBUG] Successfully updated subscription:", subscription.toJSON());
     res.json(subscription);
   } catch (error) {
     console.error("[ERROR] Failed to update subscription:", error);
@@ -86,28 +136,61 @@ const updateSubscription = asyncHandler(async (req, res) => {
   }
 });
 
-// DELETE /api/subscriptions/:id - Delete a subscription (admin-only)
+/**
+ * DELETE /api/subscriptions/:id
+ * Delete a subscription plan.
+ */
 const deleteSubscription = asyncHandler(async (req, res) => {
   console.log("[DEBUG] Executing deleteSubscription function");
   console.log("[DEBUG] Deleting subscription ID:", req.params.id);
-
   const subscriptionId = req.params.id;
-
   try {
     const subscription = await Subscription.findByPk(subscriptionId);
     if (!subscription) {
-      console.error("[ERROR] Subscription not found:", subscriptionId);
+      console.error("[ERROR] Subscription not found for ID:", subscriptionId);
       res.status(404);
       throw new Error("Subscription not found.");
     }
-
     await subscription.destroy();
-    console.log("[DEBUG] Deleted subscription:", subscriptionId);
-    res.json({ message: "Subscription deleted successfully." });
+    console.log("[DEBUG] Deleted subscription with ID:", subscriptionId);
+    res.json({ message: "Subscription deleted successfully" });
   } catch (error) {
     console.error("[ERROR] Failed to delete subscription:", error);
     res.status(500).json({ message: "Error deleting subscription", error: error.message });
   }
 });
 
-module.exports = { getSubscriptions, createSubscription, updateSubscription, deleteSubscription };
+/**
+ * PATCH /api/subscriptions/:id/toggle
+ * Toggle the subscription status between "active" and "suspended".
+ */
+const toggleSubscriptionStatus = asyncHandler(async (req, res) => {
+  console.log("[DEBUG] Executing toggleSubscriptionStatus function");
+  console.log("[DEBUG] Toggling subscription ID:", req.params.id);
+  try {
+    const subscription = await Subscription.findByPk(req.params.id);
+    if (!subscription) {
+      console.error("[ERROR] Subscription not found for ID:", req.params.id);
+      res.status(404);
+      throw new Error("Subscription not found.");
+    }
+    const newStatus = subscription.status === "active" ? "suspended" : "active";
+    await subscription.update({ status: newStatus });
+    console.log(
+      `[DEBUG] Toggled subscription ID ${req.params.id} to new status: ${newStatus}`
+    );
+    res.json(subscription);
+  } catch (error) {
+    console.error("[ERROR] Failed to toggle subscription status:", error);
+    res.status(500).json({ message: "Error toggling subscription status", error: error.message });
+  }
+});
+
+module.exports = {
+  getSubscriptions,
+  getSubscriptionById,
+  createSubscription,
+  updateSubscription,
+  deleteSubscription,
+  toggleSubscriptionStatus,
+};
