@@ -73,7 +73,7 @@ const UserFormModal = ({
   const [roleId, setRoleId] = useState("");
   const [mfaEnabled, setMfaEnabled] = useState(false);
   const [mfaType, setMfaType] = useState([]);
-  const [profilePicture, setProfilePicture] = useState(null); // file object or URL
+  const [profilePicture, setProfilePicture] = useState(null); // Can be a File object or URL (string)
   const [preview, setPreview] = useState(null);
   const [isActive, setIsActive] = useState(true);
   const [formDisabled, setFormDisabled] = useState(true);
@@ -149,17 +149,15 @@ const UserFormModal = ({
       setPreview(null);
       setPassword(generateStrongPassword());
     }
-    // Note: 'tenants' is intentionally excluded to avoid reinitializing when the tenant list changes.
+    // Note: The dependency "tenants" is intentionally excluded to avoid reinitialization.
   }, [initialData, mode, currentUser, userIsSuperAdmin]);
 
   // --- Allowed MFA Options based on selected tenant ---
-  // Checks the tenant for enabledMfaTypes, allowedMfaTypes, or allowedMfa.
   const allowedMfaOptions = useMemo(() => {
     const tenant = tenants.find((t) => t.id === tenantId);
     console.log("[DEBUG] allowedMfaOptions - tenant:", tenant);
     if (tenant) {
-      let mfaOptions =
-        tenant.enabledMfaTypes || tenant.allowedMfaTypes || tenant.allowedMfa;
+      let mfaOptions = tenant.enabledMfaTypes || tenant.allowedMfaTypes || tenant.allowedMfa;
       if (mfaOptions) {
         return Array.isArray(mfaOptions) ? mfaOptions : [mfaOptions];
       }
@@ -167,7 +165,7 @@ const UserFormModal = ({
     return [];
   }, [tenantId, tenants]);
 
-  // --- Tenant Selection using an Input with datalist for searchability ---
+  // Tenant Selection with datalist for searchability.
   const handleTenantNameChange = (e) => {
     const value = e.target.value;
     setTenantName(value);
@@ -192,34 +190,45 @@ const UserFormModal = ({
     }
   };
 
-  // Upload avatar and return the URL.
+  // Updated: Upload avatar and return URL with toast notifications.
   const handleAvatarUpload = async () => {
-      // Only carry out an upload if profilePicture exists AND is a File (object).
-      if (!profilePicture || !(profilePicture instanceof File) || !tenantId) {
-        // If profilePicture is not a File, it’s likely a URL from edit mode,
-        // so we return it directly and do not attempt an upload.
-        return typeof profilePicture === 'string' ? profilePicture : null;
+    // Only perform the upload if profilePicture exists and is a File.
+    if (!profilePicture || !(profilePicture instanceof File) || !tenantId) {
+      // If profilePicture is not a File, it's likely already a URL (edit mode) or empty.
+      return typeof profilePicture === "string" ? profilePicture : null;
+    }
+    const formData = new FormData();
+    formData.append("avatar", profilePicture);
+    try {
+      const response = await fetch(`${API_BASE}/upload-avatar/${tenantId}/avatar`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Avatar upload failed");
       }
-      const formData = new FormData();
-      formData.append("avatar", profilePicture);
-      try {
-        const response = await fetch(`${API_BASE}/upload-avatar/${tenantId}/avatar`, {
-          method: "POST",
-          body: formData,
-        });
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || "Avatar upload failed");
-        }
-        console.log("[DEBUG] Avatar uploaded. URL:", data.avatarUrl);
-        return data.avatarUrl;
-      } catch (error) {
-        console.error("[ERROR] Avatar upload error:", error);
-        alert("Avatar update failed: " + error.message);
-        return null;
-      }
-    };
-
+      console.log("[DEBUG] Avatar uploaded. URL:", data.avatarUrl);
+      toast({
+        title: "Avatar Updated",
+        description: "Your profile picture was uploaded successfully.",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+      return data.avatarUrl;
+    } catch (error) {
+      console.error("[ERROR] Avatar upload error:", error);
+      toast({
+        title: "Avatar Upload Failed",
+        description: error.message,
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+      return null;
+    }
+  };
 
   // Form submission handler.
   const handleSubmit = async (e) => {
@@ -320,7 +329,6 @@ const UserFormModal = ({
                   ))}
               </datalist>
             </FormControl>
-
             {/* First Name */}
             <FormControl id="firstName" isRequired isDisabled={formDisabled}>
               <FormLabel>First Name</FormLabel>
@@ -330,7 +338,6 @@ const UserFormModal = ({
                 onChange={(e) => setFirstName(e.target.value)}
               />
             </FormControl>
-
             {/* Last Name */}
             <FormControl id="lastName" isRequired isDisabled={formDisabled}>
               <FormLabel>Last Name</FormLabel>
@@ -340,7 +347,6 @@ const UserFormModal = ({
                 onChange={(e) => setLastName(e.target.value)}
               />
             </FormControl>
-
             {/* Email Field */}
             {mode === "add" && tenantId ? (
               <FormControl id="email" isRequired>
@@ -369,7 +375,6 @@ const UserFormModal = ({
                 />
               </FormControl>
             )}
-
             {/* Password Field (only in add mode) */}
             {mode === "add" && (
               <FormControl id="password" isRequired>
@@ -377,7 +382,6 @@ const UserFormModal = ({
                 <Input type="text" value={password} isReadOnly />
               </FormControl>
             )}
-
             {/* Role Selection */}
             <FormControl
               id="role"
@@ -402,7 +406,6 @@ const UserFormModal = ({
                 </Select>
               )}
             </FormControl>
-
             {/* MFA Controls: Render only if allowed MFA options exist */}
             {allowedMfaOptions.length > 0 && (
               <>
@@ -429,7 +432,6 @@ const UserFormModal = ({
                 )}
               </>
             )}
-
             {/* Profile Picture / Avatar Upload */}
             <FormControl id="profilePicture" isDisabled={formDisabled}>
               <FormLabel>Profile Picture</FormLabel>
@@ -451,7 +453,6 @@ const UserFormModal = ({
                 />
               </Box>
             </FormControl>
-
             {/* User Active Toggle */}
             <FormControl
               id="isActive"

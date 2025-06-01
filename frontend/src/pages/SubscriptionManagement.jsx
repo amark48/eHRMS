@@ -1,4 +1,5 @@
 // src/pages/SubscriptionManagement.jsx
+
 import React, { useState, useEffect, useMemo } from "react";
 import {
   Box,
@@ -17,95 +18,218 @@ import {
   Td,
   IconButton,
   Spinner,
-  Tooltip,
-  useDisclosure,
+  Select,
+  Text as ChakraText,
+  useToast,
 } from "@chakra-ui/react";
-import { AddIcon, EditIcon, DeleteIcon } from "@chakra-ui/icons";
+import {
+  AddIcon,
+  EditIcon,
+  DeleteIcon,
+  TriangleUpIcon,
+  TriangleDownIcon,
+} from "@chakra-ui/icons";
 import AdminLayout from "../components/AdminLayout";
 import SubscriptionFormModal from "../components/SubscriptionFormModal";
 
 const SubscriptionManagement = () => {
   const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [sortConfig, setSortConfig] = useState({ key: "name", direction: "asc" });
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSubscription, setEditingSubscription] = useState(null);
+  const toast = useToast();
 
-  // Modal disclosure hooks for adding and editing
-  const { isOpen: isAddOpen, onOpen: onAddOpen, onClose: onAddClose } = useDisclosure();
-  const { isOpen: isEditOpen, onOpen: onEditOpen, onClose: onEditClose } = useDisclosure();
-
-  // Fetch subscriptions when the component mounts.
+  // Fetch subscriptions from your API
   useEffect(() => {
     const fetchSubscriptions = async () => {
       try {
-        const response = await fetch("/api/subscriptions");
-        if (!response.ok) throw new Error("Failed to fetch subscriptions");
-        const data = await response.json();
+        console.log("[DEBUG] Fetching subscription plans...");
+        setLoading(true);
+        const res = await fetch("/api/subscriptions", {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+          },
+        });
+        if (!res.ok) throw new Error("Failed to fetch subscriptions");
+        const data = await res.json();
+        console.log("[DEBUG] Fetched subscriptions:", data);
         setSubscriptions(data);
-      } catch (error) {
-        console.error("Error fetching subscriptions:", error);
+      } catch (err) {
+        console.error("[ERROR] Fetching subscriptions failed:", err.message);
+        setError(err.message);
+        toast({
+          title: "Error",
+          description: err.message,
+          status: "error",
+          duration: 3000,
+          isClosable: true,
+        });
       } finally {
         setLoading(false);
       }
     };
-
     fetchSubscriptions();
-  }, []);
+  }, [toast]);
 
-  // Filter subscriptions based on search term (e.g., filtering by plan name)
+  // Filtering subscriptions based on search term.
   const filteredSubscriptions = useMemo(() => {
-    if (!searchTerm) return subscriptions;
     return subscriptions.filter((sub) =>
-      sub.planName && sub.planName.toLowerCase().includes(searchTerm.toLowerCase())
+      // Use an empty string if sub.name is undefined.
+      (sub.name ? sub.name.toLowerCase() : "").includes(searchTerm.toLowerCase())
     );
   }, [subscriptions, searchTerm]);
 
-  // Handler for deleting a subscription
-  const handleDeleteSubscription = async (subscriptionId) => {
-    try {
-      const response = await fetch(`/api/subscriptions/${subscriptionId}`, {
-        method: "DELETE",
+  // Sorting subscriptions based on sortConfig.
+  const sortedSubscriptions = useMemo(() => {
+    const subs = [...filteredSubscriptions];
+    if (sortConfig.key) {
+      subs.sort((a, b) => {
+        let aKey = a[sortConfig.key];
+        let bKey = b[sortConfig.key];
+        // If numeric, do numeric sort.
+        if (typeof aKey === "number" && typeof bKey === "number") {
+          return sortConfig.direction === "asc" ? aKey - bKey : bKey - aKey;
+        }
+        // Otherwise, compare as strings.
+        aKey = aKey ? aKey.toString().toLowerCase() : "";
+        bKey = bKey ? bKey.toString().toLowerCase() : "";
+        if (aKey < bKey) return sortConfig.direction === "asc" ? -1 : 1;
+        if (aKey > bKey) return sortConfig.direction === "asc" ? 1 : -1;
+        return 0;
       });
-      if (!response.ok) throw new Error("Failed to delete subscription");
-      setSubscriptions((prev) => prev.filter((sub) => sub.id !== subscriptionId));
-    } catch (error) {
-      console.error("Error deleting subscription:", error);
+    }
+    return subs;
+  }, [filteredSubscriptions, sortConfig]);
+
+  // Pagination: calculate total pages and current slice.
+  const totalPages = Math.ceil(sortedSubscriptions.length / pageSize);
+  const paginatedSubscriptions = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return sortedSubscriptions.slice(start, start + pageSize);
+  }, [sortedSubscriptions, currentPage]);
+
+  // Sorting handler triggered on column header click.
+  const handleSort = (key) => {
+    console.log("[DEBUG] Sorting by key:", key);
+    setSortConfig((prev) => {
+      if (prev.key === key) {
+        return { key, direction: prev.direction === "asc" ? "desc" : "asc" };
+      }
+      return { key, direction: "asc" };
+    });
+  };
+
+  // Handlers for modal open/close.
+  const openEditModal = (subscription) => {
+    console.log("[DEBUG] Opening edit modal for subscription:", subscription.id);
+    setEditingSubscription(subscription);
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setEditingSubscription(null);
+    setIsModalOpen(false);
+  };
+
+  // Delete subscription handler.
+  const handleDelete = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this subscription plan?")) return;
+    try {
+      console.log("[DEBUG] Deleting subscription with ID:", id);
+      const res = await fetch(`/api/subscriptions/${id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+        },
+      });
+      if (!res.ok) throw new Error("Failed to delete subscription");
+      setSubscriptions((prev) => prev.filter((sub) => sub.id !== id));
+      toast({
+        title: "Deleted",
+        description: "Subscription deleted successfully.",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (err) {
+      console.error("[ERROR] Deleting subscription failed:", err.message);
+      toast({
+        title: "Error",
+        description: err.message,
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
     }
   };
 
-  // Handler for adding a subscription (called from the modal)
-  const handleAddSubscription = (newSubscription) => {
-    setSubscriptions([...subscriptions, newSubscription]);
-    onAddClose();
-  };
-
-  // Handler for editing a subscription (called from the modal)
-  const handleEditSubscription = (updatedSubscription) => {
-    setSubscriptions(
-      subscriptions.map((sub) => (sub.id === updatedSubscription.id ? updatedSubscription : sub))
-    );
-    onEditClose();
-    setEditingSubscription(null);
+  // Toggle subscription status handler.
+  const handleToggleStatus = async (id) => {
+    try {
+      console.log("[DEBUG] Toggling status for subscription ID:", id);
+      const res = await fetch(`/api/subscriptions/${id}/toggle`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+        },
+      });
+      if (!res.ok) throw new Error("Failed to toggle subscription status");
+      const updatedSub = await res.json();
+      setSubscriptions((prev) =>
+        prev.map((sub) => (sub.id === id ? updatedSub : sub))
+      );
+      toast({
+        title: "Status Updated",
+        description: "Subscription status toggled successfully.",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (err) {
+      console.error("[ERROR] Toggling status failed:", err.message);
+      toast({
+        title: "Error",
+        description: err.message,
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+    }
   };
 
   return (
     <AdminLayout>
       <Box p={6}>
-        <Heading size="lg" mb={4}>
-          Subscription Management
-        </Heading>
-        <Text color="gray.600" mb={4}>
-          Manage subscription plans and pricing for your platform.
-        </Text>
+        <Heading mb={4}>Subscription Management</Heading>
+        <ChakraText color="gray.600" mb={4}>
+          Manage your subscription plans.
+        </ChakraText>
 
-        <Flex mb={4} alignItems="center">
+        {/* Search and Add button row */}
+        <Flex mb={4} align="center">
           <Input
-            placeholder="Search subscriptions..."
+            placeholder="Search by name..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
+            maxW="300px"
           />
           <Spacer />
-          <Button leftIcon={<AddIcon />} colorScheme="blue" onClick={onAddOpen}>
+          <Button
+            leftIcon={<AddIcon />}
+            colorScheme="blue"
+            onClick={() => {
+              setEditingSubscription(null);
+              setIsModalOpen(true);
+            }}
+          >
             Add Subscription
           </Button>
         </Flex>
@@ -115,80 +239,139 @@ const SubscriptionManagement = () => {
             <Spinner size="xl" />
           </Flex>
         ) : (
-          <TableContainer>
-            <Table variant="simple">
-              <Thead>
-                <Tr>
-                  <Th>Plan Name</Th>
-                  <Th>Price</Th>
-                  <Th>Duration</Th>
-                  <Th>Status</Th>
-                  <Th>Actions</Th>
-                </Tr>
-              </Thead>
-              <Tbody>
-                {filteredSubscriptions.length === 0 ? (
+          <>
+            <TableContainer>
+              <Table variant="simple">
+                <Thead>
                   <Tr>
-                    <Td colSpan={5} textAlign="center">
-                      No subscriptions found.
-                    </Td>
+                    <Th cursor="pointer" onClick={() => handleSort("name")}>
+                      Name{" "}
+                      {sortConfig.key === "name" &&
+                        (sortConfig.direction === "asc" ? (
+                          <TriangleUpIcon ml={1} />
+                        ) : (
+                          <TriangleDownIcon ml={1} />
+                        ))}
+                    </Th>
+                    <Th cursor="pointer" onClick={() => handleSort("price")}>
+                      Price{" "}
+                      {sortConfig.key === "price" &&
+                        (sortConfig.direction === "asc" ? (
+                          <TriangleUpIcon ml={1} />
+                        ) : (
+                          <TriangleDownIcon ml={1} />
+                        ))}
+                    </Th>
+                    <Th cursor="pointer" onClick={() => handleSort("duration")}>
+                      Duration{" "}
+                      {sortConfig.key === "duration" &&
+                        (sortConfig.direction === "asc" ? (
+                          <TriangleUpIcon ml={1} />
+                        ) : (
+                          <TriangleDownIcon ml={1} />
+                        ))}
+                    </Th>
+                    <Th cursor="pointer" onClick={() => handleSort("status")}>
+                      Status{" "}
+                      {sortConfig.key === "status" &&
+                        (sortConfig.direction === "asc" ? (
+                          <TriangleUpIcon ml={1} />
+                        ) : (
+                          <TriangleDownIcon ml={1} />
+                        ))}
+                    </Th>
+                    <Th>Actions</Th>
                   </Tr>
-                ) : (
-                  filteredSubscriptions.map((sub) => (
-                    <Tr key={sub.id} _hover={{ bg: "gray.100" }}>
-                      <Td>{sub.planName}</Td>
-                      <Td>{sub.price}</Td>
-                      <Td>{sub.duration}</Td>
-                      <Td>{sub.isActive ? "Active" : "Inactive"}</Td>
-                      <Td>
-                        <Tooltip label="Edit Subscription">
+                </Thead>
+                <Tbody>
+                  {paginatedSubscriptions.length === 0 ? (
+                    <Tr>
+                      <Td colSpan={5} textAlign="center">
+                        No subscriptions found.
+                      </Td>
+                    </Tr>
+                  ) : (
+                    paginatedSubscriptions.map((sub) => (
+                      <Tr key={sub.id}>
+                        <Td>{sub.name}</Td>
+                        <Td>${sub.price}</Td>
+                        <Td textTransform="capitalize">{sub.duration}</Td>
+                        <Td textTransform="capitalize">{sub.status}</Td>
+                        <Td>
                           <IconButton
-                            aria-label="Edit subscription"
+                            aria-label="Edit Subscription"
                             icon={<EditIcon />}
                             size="sm"
                             mr={2}
-                            onClick={() => {
-                              setEditingSubscription(sub);
-                              onEditOpen();
-                            }}
+                            onClick={() => openEditModal(sub)}
                           />
-                        </Tooltip>
-                        <Tooltip label="Delete Subscription">
                           <IconButton
-                            aria-label="Delete subscription"
+                            aria-label="Delete Subscription"
                             icon={<DeleteIcon />}
                             size="sm"
-                            onClick={() => handleDeleteSubscription(sub.id)}
+                            mr={2}
+                            onClick={() => handleDelete(sub.id)}
                           />
-                        </Tooltip>
-                      </Td>
-                    </Tr>
-                  ))
-                )}
-              </Tbody>
-            </Table>
-          </TableContainer>
+                          <Button
+                            size="sm"
+                            onClick={() => handleToggleStatus(sub.id)}
+                          >
+                            Toggle Status
+                          </Button>
+                        </Td>
+                      </Tr>
+                    ))
+                  )}
+                </Tbody>
+              </Table>
+            </TableContainer>
+
+            {/* Pagination Controls */}
+            <Flex mt={4} justify="space-between" align="center">
+              <Button
+                onClick={() =>
+                  setCurrentPage((prev) => Math.max(prev - 1, 1))
+                }
+                disabled={currentPage === 1}
+              >
+                Previous
+              </Button>
+              <Text>
+                Page {currentPage} of {totalPages || 1}
+              </Text>
+              <Button
+                onClick={() =>
+                  setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                }
+                disabled={currentPage === totalPages || totalPages === 0}
+              >
+                Next
+              </Button>
+            </Flex>
+          </>
+        )}
+
+        {/* Subscription Form Modal for Add/Edit */}
+        {isModalOpen && (
+          <SubscriptionFormModal
+            isOpen={isModalOpen}
+            onClose={closeModal}
+            subscription={editingSubscription}
+            onSubmit={(updatedSub) => {
+              if (editingSubscription) {
+                setSubscriptions((subs) =>
+                  subs.map((sub) =>
+                    sub.id === updatedSub.id ? updatedSub : sub
+                  )
+                );
+              } else {
+                setSubscriptions((subs) => [...subs, updatedSub]);
+              }
+              closeModal();
+            }}
+          />
         )}
       </Box>
-
-      {/* Modal for Adding a Subscription */}
-      <SubscriptionFormModal
-        isOpen={isAddOpen}
-        onClose={onAddClose}
-        mode="add"
-        onSubmit={handleAddSubscription}
-      />
-
-      {/* Modal for Editing a Subscription */}
-      {editingSubscription && (
-        <SubscriptionFormModal
-          isOpen={isEditOpen}
-          onClose={onEditClose}
-          mode="edit"
-          initialData={editingSubscription}
-          onSubmit={handleEditSubscription}
-        />
-      )}
     </AdminLayout>
   );
 };
