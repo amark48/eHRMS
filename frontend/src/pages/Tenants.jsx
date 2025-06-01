@@ -1,4 +1,5 @@
 // src/pages/Tenants.jsx
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Box,
@@ -57,44 +58,31 @@ function useDebounce(value, delay) {
 }
 
 const Tenants = () => {
- 
+  // States for tenants list, search and filter.
   const [tenants, setTenants] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [editingTenant, setEditingTenant] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const toast = useToast();
-
-  const { isOpen, onOpen, onClose } = useDisclosure();
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 10; // Adjust if needed
-
-  // Sorting state: column and order.
-  const [sortConfig, setSortConfig] = useState({ key: "name", direction: "asc" });
-
+  // Status filter: use "" for All, "active" for active only, "disabled" for disabled only.
   const [statusFilter, setStatusFilter] = useState("");
 
-  // For delete confirmation.
-  const {
-    isOpen: isDeleteOpen,
-    onOpen: onDeleteOpen,
-    onClose: onDeleteClose,
-  } = useDisclosure();
+  const [loading, setLoading] = useState(true);
+  const [editingTenant, setEditingTenant] = useState(null);
+  const toast = useToast();
+
+  // Chakra disclosure hooks for modals.
+  const { isOpen: isAddOpen, onOpen: onAddOpen, onClose: onAddClose } = useDisclosure();
+  const { isOpen: isEditOpen, onOpen: onEditOpen, onClose: onEditClose } = useDisclosure();
+  const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const [tenantToDelete, setTenantToDelete] = useState(null);
   const cancelRef = useRef();
 
-  const {
-    isOpen: isAddOpen,
-    onOpen: onAddOpen,
-    onClose: onAddClose,
-  } = useDisclosure();
-  const {
-    isOpen: isEditOpen,
-    onOpen: onEditOpen,
-    onClose: onEditClose,
-  } = useDisclosure();
+  // Pagination state.
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
 
-  // Debounce the searchTerm for performance.
+  // Sorting state.
+  const [sortConfig, setSortConfig] = useState({ key: "name", direction: "asc" });
+
+  // Debounce the search term for performance.
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
 
   // Fetch tenants from backend.
@@ -123,83 +111,67 @@ const Tenants = () => {
     fetchTenants();
   }, []);
 
-  // Derived state: filtered and sorted tenants.
- const filteredAndSortedTenants = useMemo(() => {
-  // First, filter by search term.
-  let filtered = debouncedSearchTerm
-    ? tenants.filter(
-        (tenant) =>
-          tenant.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
-          tenant.domain.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
-      )
-    : tenants;
-
-  // Apply the status filter.
-  if (statusFilter) {
-    if (statusFilter === "active") {
-      filtered = filtered.filter((tenant) => tenant.isActive);
-    } else if (statusFilter === "disabled") {
-      filtered = filtered.filter((tenant) => !tenant.isActive);
-    }
-  }
-
-  // Create a shallow copy so we don't mutate state.
-  const sorted = [...filtered];
-
-  // Sorting logic.
-  if (sortConfig !== null) {
-    sorted.sort((a, b) => {
-      if (sortConfig.key === "createdAt") {
-        // Compare as dates.
-        const dateA = new Date(a.createdAt);
-        const dateB = new Date(b.createdAt);
-        return sortConfig.direction === "asc"
-          ? dateA - dateB
-          : dateB - dateA;
+  // Filter the tenants by search term and status.
+  const filteredTenants = useMemo(() => {
+    return tenants.filter((tenant) => {
+      const termMatch = tenant.name.toLowerCase().includes(searchTerm.toLowerCase());
+      let statusMatch = true;
+      if (statusFilter === "active") {
+        statusMatch = tenant.isActive;
+      } else if (statusFilter === "disabled") {
+        statusMatch = !tenant.isActive;
       }
-      // For string comparison (e.g., name).
-      if (!a[sortConfig.key] || !b[sortConfig.key]) return 0;
-      const aKey = a[sortConfig.key].toString().toLowerCase();
-      const bKey = b[sortConfig.key].toString().toLowerCase();
-      if (aKey < bKey) {
-        return sortConfig.direction === "asc" ? -1 : 1;
-      }
-      if (aKey > bKey) {
-        return sortConfig.direction === "asc" ? 1 : -1;
-      }
-      return 0;
+      return termMatch && statusMatch;
     });
-  }
-  return sorted;
-}, [tenants, debouncedSearchTerm, sortConfig, statusFilter]);
+  }, [tenants, searchTerm, statusFilter]);
 
-  // Pagination: Compute total pages and current page data.
+  // Sorting
+  const filteredAndSortedTenants = useMemo(() => {
+    const sorted = [...filteredTenants];
+    if (sortConfig !== null) {
+      sorted.sort((a, b) => {
+        if (sortConfig.key === "createdAt") {
+          const dateA = new Date(a.createdAt);
+          const dateB = new Date(b.createdAt);
+          return sortConfig.direction === "asc" ? dateA - dateB : dateB - dateA;
+        }
+        const aKey = a[sortConfig.key]?.toString().toLowerCase() || "";
+        const bKey = b[sortConfig.key]?.toString().toLowerCase() || "";
+        if (aKey < bKey) {
+          return sortConfig.direction === "asc" ? -1 : 1;
+        }
+        if (aKey > bKey) {
+          return sortConfig.direction === "asc" ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+    return sorted;
+  }, [filteredTenants, sortConfig]);
+
+  // Pagination.
   const totalPages = Math.ceil(filteredAndSortedTenants.length / pageSize);
   const paginatedTenants = useMemo(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(1);
-      return filteredAndSortedTenants.slice(0, pageSize);
-    }
-    const startIndex = (currentPage - 1) * pageSize;
-    const endIndex = startIndex + pageSize;
-    return filteredAndSortedTenants.slice(startIndex, endIndex);
-  }, [filteredAndSortedTenants, currentPage, pageSize, totalPages]);
+    const start = (currentPage - 1) * pageSize;
+    return filteredAndSortedTenants.slice(start, start + pageSize);
+  }, [filteredAndSortedTenants, currentPage, pageSize]);
 
   // Sorting handler.
   const handleSort = (key) => {
-    setSortConfig((prevConfig) => {
-      if (prevConfig.key === key) {
-        // Toggle order.
-        return { key, direction: prevConfig.direction === "asc" ? "desc" : "asc" };
+    setSortConfig((prev) => {
+      if (prev.key === key) {
+        return { key, direction: prev.direction === "asc" ? "desc" : "asc" };
       }
       return { key, direction: "asc" };
     });
   };
 
-  // Toggle tenant active status.
+  // Handlers for tenant status toggling, deletion, add, and edit.
   const handleToggleTenantStatus = async (tenantId) => {
     try {
-      const response = await fetch(`/api/tenants/${tenantId}/toggle`, { method: "PATCH" });
+      const response = await fetch(`/api/tenants/${tenantId}/toggle`, {
+        method: "PATCH",
+      });
       if (!response.ok) throw new Error("Error toggling tenant status");
       const updatedTenant = await response.json();
       setTenants((prev) =>
@@ -222,11 +194,17 @@ const Tenants = () => {
     }
   };
 
-  // Delete tenant with confirmation.
+  const openDeleteDialog = (tenant) => {
+    setTenantToDelete(tenant);
+    onDeleteOpen();
+  };
+
   const handleDeleteTenantConfirm = async () => {
     if (!tenantToDelete) return;
     try {
-      const response = await fetch(`/api/tenants/${tenantToDelete.id}`, { method: "DELETE" });
+      const response = await fetch(`/api/tenants/${tenantToDelete.id}`, {
+        method: "DELETE",
+      });
       if (!response.ok) throw new Error("Error deleting tenant");
       setTenants((prev) => prev.filter((tenant) => tenant.id !== tenantToDelete.id));
       toast({
@@ -248,25 +226,17 @@ const Tenants = () => {
     }
   };
 
-  const openDeleteDialog = (tenant) => {
-    setTenantToDelete(tenant);
-    onDeleteOpen();
+  const handleAddTenant = (tenantData) => {
+    setTenants((prev) => [...prev, tenantData]);
+    toast({
+      title: "Tenant added successfully",
+      status: "success",
+      duration: 3000,
+      isClosable: true,
+    });
+    onAddClose();
   };
 
-  // Add new tenant.
-  const handleAddTenant = (tenantData) => {
-  // tenantData is expected to be the result from the modal's API call.
-  setTenants((prev) => [...prev, tenantData]);
-  toast({
-    title: "Tenant added successfully",
-    status: "success",
-    duration: 3000,
-    isClosable: true,
-  });
-  onAddClose();
-};
-
-  // Edit an existing tenant.
   const handleEditTenant = async (tenantData) => {
     try {
       const response = await fetch(`/api/tenants/${editingTenant.id}`, {
@@ -301,53 +271,48 @@ const Tenants = () => {
   return (
     <AdminLayout>
       <Box p={6}>
-        <Flex mb={4} alignItems="center">
-          <Heading size="lg">Tenant Management</Heading>
-          <Spacer />
-          <Button
-  leftIcon={<AddIcon />}
-  colorScheme="blue"
-  onClick={() => {
-    console.log("Add Tenant button clicked");
-    onAddOpen();
-  }}
->
-  Add Tenant
-</Button>
+        <Heading mb={4}>Tenant Management</Heading>
+        <Text color="gray.600" mb={6}>
+          Manage your tenant configurations.
+        </Text>
+        {/* Header: Search and Filter on the left, Add Tenant on the right */}
+        <Flex mb={4} alignItems="center" justifyContent="space-between">
+          <Flex alignItems="center">
+            <InputGroup maxW="300px">
+              <InputLeftElement pointerEvents="none">
+                <SearchIcon color="gray.400" />
+              </InputLeftElement>
+              <Input
+                placeholder="Search tenants..."
+                size="sm"
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
+              />
+            </InputGroup>
+            <Select
+              size="sm"
+              maxW="200px"
+              ml={4}
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+            >
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="disabled">Disabled</option>
+            </Select>
+          </Flex>
+          <Button leftIcon={<AddIcon />} colorScheme="blue" onClick={onAddOpen}>
+            Add Tenant
+          </Button>
         </Flex>
-<Flex justify="center" alignItems="center" mb={4}>
-  <InputGroup maxW="300px">
-    <InputLeftElement pointerEvents="none">
-      <SearchIcon color="gray.400" />
-    </InputLeftElement>
-    <Input
-      placeholder="Search..."
-      size="sm"
-      value={searchTerm}
-      onChange={(e) => {
-        setSearchTerm(e.target.value);
-        setCurrentPage(1); // Reset page on search change.
-      }}
-    />
-  </InputGroup>
-  <Spacer />
-  <Select
-    placeholder="Filter by status"
-    size="sm"
-    maxW="200px"
-    ml={4}
-    value={statusFilter}
-    onChange={(e) => {
-      setStatusFilter(e.target.value);
-      setCurrentPage(1); // Reset page when filter changes.
-    }}
-  >
-    <option value="active">Active</option>
-    <option value="disabled">Disabled</option>
-  </Select>
-</Flex>
-
-
+  
+        {/* Tenants Table */}
         {loading ? (
           <Flex justify="center" align="center" minH="200px">
             <Spinner size="xl" />
@@ -359,26 +324,24 @@ const Tenants = () => {
                 <Thead>
                   <Tr>
                     <Th>Logo</Th>
-                    <Th cursor="pointer" onClick={() => handleSort("name")}>
+                    <Th
+                      cursor="pointer"
+                      onClick={() => handleSort("name")}
+                    >
                       Name{" "}
                       {sortConfig.key === "name" &&
-                        (sortConfig.direction === "asc" ? (
-                          <TriangleUpIcon ml={1} />
-                        ) : (
-                          <TriangleDownIcon ml={1} />
-                        ))}
+                        (sortConfig.direction === "asc" ? <TriangleUpIcon ml={1} /> : <TriangleDownIcon ml={1} />)}
                     </Th>
                     <Th>Domain</Th>
                     <Th>Subscription Tier</Th>
                     <Th>Status</Th>
-                    <Th cursor="pointer" onClick={() => handleSort("createdAt")}>
+                    <Th
+                      cursor="pointer"
+                      onClick={() => handleSort("createdAt")}
+                    >
                       Created At{" "}
                       {sortConfig.key === "createdAt" &&
-                        (sortConfig.direction === "asc" ? (
-                          <TriangleUpIcon ml={1} />
-                        ) : (
-                          <TriangleDownIcon ml={1} />
-                        ))}
+                        (sortConfig.direction === "asc" ? <TriangleUpIcon ml={1} /> : <TriangleDownIcon ml={1} />)}
                     </Th>
                     <Th isNumeric>Actions</Th>
                   </Tr>
@@ -400,41 +363,37 @@ const Tenants = () => {
                         <Td>{tenant.domain}</Td>
                         <Td>{tenant.subscriptionTier}</Td>
                         <Td>{tenant.isActive ? "Active" : "Disabled"}</Td>
-                        <Td>
-                          {tenant.createdAt
-                            ? new Date(tenant.createdAt).toLocaleString()
-                            : "N/A"}
-                        </Td>
+                        <Td>{tenant.createdAt ? new Date(tenant.createdAt).toLocaleString() : "N/A"}</Td>
                         <Td isNumeric>
-                          <Tooltip label="Edit Tenant" aria-label="Edit tooltip">
+                          <Tooltip label="Edit Tenant">
                             <IconButton
                               aria-label="Edit tenant"
                               icon={<EditIcon />}
                               mr={2}
+                              size="sm"
                               onClick={() => {
                                 setEditingTenant(tenant);
                                 onEditOpen();
                               }}
                             />
                           </Tooltip>
-                          <Tooltip label="Delete Tenant" aria-label="Delete tooltip">
+                          <Tooltip label="Delete Tenant">
                             <IconButton
                               aria-label="Delete tenant"
                               icon={<DeleteIcon />}
                               mr={2}
+                              size="sm"
                               onClick={() => {
                                 setEditingTenant(null);
                                 openDeleteDialog(tenant);
                               }}
                             />
                           </Tooltip>
-                          <Tooltip
-                            label={tenant.isActive ? "Disable Tenant" : "Enable Tenant"}
-                            aria-label="Toggle tooltip"
-                          >
+                          <Tooltip label={tenant.isActive ? "Disable Tenant" : "Enable Tenant"}>
                             <IconButton
                               aria-label={tenant.isActive ? "Disable tenant" : "Enable tenant"}
                               icon={tenant.isActive ? <LockIcon /> : <UnlockIcon />}
+                              size="sm"
                               onClick={() => handleToggleTenantStatus(tenant.id)}
                             />
                           </Tooltip>
@@ -445,8 +404,7 @@ const Tenants = () => {
                 </Tbody>
               </Table>
             </TableContainer>
-            {/* Pagination Controls */}
-            <Flex justify="space-between" align="center" mt={4}>
+            <Flex mt={4} justify="space-between" align="center">
               <Button
                 onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
                 disabled={currentPage === 1}
@@ -466,21 +424,16 @@ const Tenants = () => {
           </>
         )}
       </Box>
-
+  
       {/* Delete Confirmation Dialog */}
-      <AlertDialog
-        isOpen={isDeleteOpen}
-        leastDestructiveRef={cancelRef}
-        onClose={onDeleteClose}
-      >
+      <AlertDialog isOpen={isDeleteOpen} leastDestructiveRef={cancelRef} onClose={onDeleteClose}>
         <AlertDialogOverlay>
           <AlertDialogContent>
             <AlertDialogHeader fontSize="lg" fontWeight="bold">
               Delete Tenant
             </AlertDialogHeader>
             <AlertDialogBody>
-              Are you sure you want to delete the tenant{" "}
-              <strong>{tenantToDelete?.name}</strong>? This action cannot be undone.
+              Are you sure you want to delete the tenant <strong>{tenantToDelete?.name}</strong>? This action cannot be undone.
             </AlertDialogBody>
             <AlertDialogFooter>
               <Button ref={cancelRef} onClick={onDeleteClose}>
@@ -493,23 +446,26 @@ const Tenants = () => {
           </AlertDialogContent>
         </AlertDialogOverlay>
       </AlertDialog>
-
-
+  
       {/* Add Tenant Modal */}
       <TenantFormModal
         isOpen={isAddOpen}
-        onClose={onAddClose}
+        onClose={() => {
+          setEditingTenant(null);
+          onAddClose();
+        }}
         mode="add"
         onSubmit={handleAddTenant}
       />
-
-
-
+  
       {/* Edit Tenant Modal */}
       {editingTenant && (
         <TenantFormModal
           isOpen={isEditOpen}
-          onClose={onEditClose}
+          onClose={() => {
+            setEditingTenant(null);
+            onEditClose();
+          }}
           mode="edit"
           initialData={editingTenant}
           onSubmit={handleEditTenant}

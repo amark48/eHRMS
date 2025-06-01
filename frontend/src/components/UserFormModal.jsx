@@ -194,30 +194,32 @@ const UserFormModal = ({
 
   // Upload avatar and return the URL.
   const handleAvatarUpload = async () => {
-    if (!profilePicture || !tenantId) return null;
-    const formData = new FormData();
-    formData.append("avatar", profilePicture);
-    try {
-      const response = await fetch(`${API_BASE}/upload-avatar/${tenantId}/avatar`, {
-        method: "POST",
-        body: formData,
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Avatar upload failed");
-      console.log("[DEBUG] Avatar uploaded. URL:", data.avatarUrl);
-      return data.avatarUrl;
-    } catch (error) {
-      console.error("[ERROR] Avatar upload error:", error);
-      toast({
-        title: "Avatar Upload Failed",
-        description: error.message,
-        status: "error",
-        duration: 3000,
-        isClosable: true,
-      });
-      return null;
-    }
-  };
+      // Only carry out an upload if profilePicture exists AND is a File (object).
+      if (!profilePicture || !(profilePicture instanceof File) || !tenantId) {
+        // If profilePicture is not a File, it’s likely a URL from edit mode,
+        // so we return it directly and do not attempt an upload.
+        return typeof profilePicture === 'string' ? profilePicture : null;
+      }
+      const formData = new FormData();
+      formData.append("avatar", profilePicture);
+      try {
+        const response = await fetch(`${API_BASE}/upload-avatar/${tenantId}/avatar`, {
+          method: "POST",
+          body: formData,
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Avatar upload failed");
+        }
+        console.log("[DEBUG] Avatar uploaded. URL:", data.avatarUrl);
+        return data.avatarUrl;
+      } catch (error) {
+        console.error("[ERROR] Avatar upload error:", error);
+        alert("Avatar update failed: " + error.message);
+        return null;
+      }
+    };
+
 
   // Form submission handler.
   const handleSubmit = async (e) => {
