@@ -1,5 +1,4 @@
 // backend/src/controllers/authController.js
-
 require("dotenv").config();
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
@@ -12,7 +11,7 @@ const transporter = require("../config/mail");
 // Import models.
 const User = require("../models/User");
 const Tenant = require("../models/Tenant");
-const Role = require("../models/Role"); // Import the Role model to include role info
+const Role = require("../models/Role");
 
 // In-memory OTP store for EMAIL and SMS MFA (for demo purposes)
 const otpStore = {};
@@ -35,12 +34,11 @@ const loginUser = asyncHandler(async (req, res) => {
   const { email, password, companyID } = req.body;
   console.log("----- LOGIN REQUEST RECEIVED -----");
   console.log("Request Body:", req.body);
-
   if (!companyID) {
     res.status(400);
     throw new Error("companyID is required for multi-tenancy login");
   }
-  
+
   // Look up the user by email and tenantId (companyID)
   const user = await User.findOne({ where: { email, tenantId: companyID } });
   if (!user) {
@@ -62,8 +60,7 @@ const loginUser = asyncHandler(async (req, res) => {
   // MFA enabled process.
   if (user.mfaEnabled) {
     console.log("MFA is enabled for user:", email);
-    
-    // Process mfaType: if it's an array, take the first element; then trim and force uppercase.
+    // Process mfaType:
     let mfaTypeValue = user.mfaType;
     console.log("Original mfaType value:", mfaTypeValue, "Type:", typeof mfaTypeValue);
     if (Array.isArray(mfaTypeValue)) {
@@ -75,7 +72,6 @@ const loginUser = asyncHandler(async (req, res) => {
       console.log("Trimmed and uppercased mfaTypeValue:", mfaTypeValue);
     }
     console.log("Final mfaTypeValue:", mfaTypeValue);
-    
     // If MFA method is not configured by the user, fetch allowed methods from the tenant.
     if (!mfaTypeValue) {
       console.log("User has not configured an MFA method. Fetching tenant allowed MFA types.");
@@ -92,14 +88,9 @@ const loginUser = asyncHandler(async (req, res) => {
         process.env.JWT_SECRET,
         { expiresIn: "10m" }
       );
-      return res.status(200).json({
-        mfaRequired: true,
-        message: "MFA is required. Please select your preferred method from allowed options.",
-        tempToken,
-        allowedMfaTypes,
-      });
+      return res.status(200).json({ mfaRequired: true, message: "MFA is required. Please select your preferred method from allowed options.", tempToken, allowedMfaTypes });
     }
-    
+
     // MFA via TOTP (e.g., authenticator apps)
     if (mfaTypeValue === "TOTP") {
       console.log("MFA Type: TOTP (Google/Microsoft Authenticator)");
@@ -108,13 +99,10 @@ const loginUser = asyncHandler(async (req, res) => {
         process.env.JWT_SECRET,
         { expiresIn: "10m" }
       );
-      return res.status(200).json({
-        mfaRequired: true,
-        message: "MFA verification is required (use your authenticator app).",
-        tempToken,
-        mfaType: mfaTypeValue,
-      });
-    } else if (mfaTypeValue === "EMAIL" || mfaTypeValue === "SMS") {
+      return res.status(200).json({ mfaRequired: true, message: "MFA verification is required (use your authenticator app).", tempToken, mfaType: mfaTypeValue });
+    }
+    // For EMAIL or SMS MFA.
+    else if (mfaTypeValue === "EMAIL" || mfaTypeValue === "SMS") {
       console.log(`MFA Type: ${mfaTypeValue} - Sending OTP code.`);
       // Generate a 6-digit OTP.
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -133,12 +121,7 @@ const loginUser = asyncHandler(async (req, res) => {
         process.env.JWT_SECRET,
         { expiresIn: "10m" }
       );
-      return res.status(200).json({
-        mfaRequired: true,
-        message: `MFA is enabled. An OTP has been sent to your ${mfaTypeValue === "EMAIL" ? "email" : "phone"}.`,
-        tempToken,
-        mfaType: mfaTypeValue,
-      });
+      return res.status(200).json({ mfaRequired: true, message: `MFA is enabled. An OTP has been sent to your ${mfaTypeValue === "EMAIL" ? "email" : "phone"}.`, tempToken, mfaType: mfaTypeValue });
     } else {
       res.status(400);
       throw new Error("Unsupported MFA type: " + mfaTypeValue);
@@ -149,7 +132,6 @@ const loginUser = asyncHandler(async (req, res) => {
   const userWithRole = await User.findByPk(user.id, {
     include: [{ model: Role, as: "role", attributes: ["id", "name", "permissions"] }],
   });
-  
   // Issue JWT token.
   const token = jwt.sign(
     { id: user.id, email: user.email, companyID: user.tenantId },
@@ -157,7 +139,7 @@ const loginUser = asyncHandler(async (req, res) => {
     { expiresIn: "1d" }
   );
   console.log("Final JWT token issued for user:", email);
-  
+
   // Return full user details.
   res.status(200).json({
     user: {
@@ -200,25 +182,35 @@ const requestMfaCode = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("User not found");
   }
+  // Normalize the stored MFA type.
+  let normalizedMfaType = "";
+  if (user.mfaType) {
+    if (Array.isArray(user.mfaType)) {
+      normalizedMfaType = user.mfaType[0];
+    } else {
+      normalizedMfaType = user.mfaType.toString();
+    }
+    normalizedMfaType = normalizedMfaType.trim().toUpperCase();
+  }
+  
   // For EMAIL or SMS MFA.
-  if (user.mfaType === "EMAIL" || user.mfaType === "SMS") {
+  if (normalizedMfaType === "EMAIL" || normalizedMfaType === "SMS") {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     otpStore[user.id] = { code: otp, expires: Date.now() + 5 * 60 * 1000 };
-    if (user.mfaType === "EMAIL") {
+    if (normalizedMfaType === "EMAIL") {
       console.log(`Sending OTP to email ${user.email}: ${otp}`);
       await sendOTPEmail(user.email, otp);
     } else {
       console.log(`Sending OTP via SMS for user ${user.email}: ${otp}`);
       // TODO: Integrate with SMS service in production.
     }
-    return res.status(200).json({
-      message: `OTP has been sent to your ${user.mfaType === "EMAIL" ? "email" : "phone"}.`,
-    });
+    return res.status(200).json({ message: `OTP has been sent to your ${normalizedMfaType === "EMAIL" ? "email" : "phone"}.` });
   } else {
     res.status(400);
     throw new Error("MFA type does not require an external OTP request");
   }
 });
+
 
 // POST /api/auth/verify-mfa
 const verifyMfa = asyncHandler(async (req, res) => {
@@ -243,6 +235,7 @@ const verifyMfa = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("The provided token does not require MFA verification");
   }
+  
   // Find the corresponding user.
   const user = await User.findByPk(decoded.id);
   if (!user) {
@@ -250,8 +243,20 @@ const verifyMfa = asyncHandler(async (req, res) => {
     throw new Error("User not found");
   }
   console.log("Verifying MFA for user:", user.email);
+
+  // Normalize user.mfaType to ensure proper comparisons.
+  let normalizedMfaType = "";
+  if (user.mfaType) {
+    if (Array.isArray(user.mfaType)) {
+      normalizedMfaType = user.mfaType[0];
+    } else {
+      normalizedMfaType = user.mfaType.toString();
+    }
+    normalizedMfaType = normalizedMfaType.trim().toUpperCase();
+  }
+  
   // For TOTP verification.
-  if (user.mfaType === "TOTP") {
+  if (normalizedMfaType === "TOTP") {
     const isValid = speakeasy.totp.verify({
       secret: user.mfaSecret,
       encoding: "base32",
@@ -264,8 +269,8 @@ const verifyMfa = asyncHandler(async (req, res) => {
     }
   }
   // For EMAIL or SMS OTP verification.
-  else if (user.mfaType === "EMAIL" || user.mfaType === "SMS") {
-    console.log(`Verifying OTP for ${user.mfaType}`);
+  else if (normalizedMfaType === "EMAIL" || normalizedMfaType === "SMS") {
+    console.log(`Verifying OTP for ${normalizedMfaType}`);
     const otpEntry = otpStore[user.id];
     if (!otpEntry) {
       res.status(401);
@@ -301,6 +306,7 @@ const verifyMfa = asyncHandler(async (req, res) => {
     token,
   });
 });
+
 
 // POST /api/auth/setup-totp
 const setupTotp = asyncHandler(async (req, res) => {
