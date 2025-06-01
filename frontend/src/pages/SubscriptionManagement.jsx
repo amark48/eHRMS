@@ -1,5 +1,3 @@
-// src/pages/SubscriptionManagement.jsx
-
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Box,
@@ -29,39 +27,50 @@ import {
   FormControl,
   FormLabel,
   Checkbox,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalCloseButton
 } from "@chakra-ui/react";
 import {
   AddIcon,
   EditIcon,
   DeleteIcon,
   TriangleUpIcon,
-  TriangleDownIcon,
+  TriangleDownIcon
 } from "@chakra-ui/icons";
 import AdminLayout from "../components/AdminLayout";
 import SubscriptionFormModal from "../components/SubscriptionFormModal";
 
 const SubscriptionManagement = () => {
-  // Basic state & data fetching
+  // Basic state and fetching
   const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // Basic search input
-  const [searchTerm, setSearchTerm] = useState("");
 
-  // Additional Filters
+  // Search input and additional filters
+  const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState(""); // "", "active", "deprecated", "suspended"
   const [filterDuration, setFilterDuration] = useState(""); // "", "monthly", "yearly"
   const [filterAutoRenew, setFilterAutoRenew] = useState(""); // "", "true", "false"
 
-  // Pagination state
+  // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
 
-  // Modal state for add/edit
+  // Modal state for add/edit and bulk edit
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSubscription, setEditingSubscription] = useState(null);
+  const [isBulkEditModalOpen, setIsBulkEditModalOpen] = useState(false);
+  const [bulkEditData, setBulkEditData] = useState({
+    status: "",
+    duration: "",
+    price: ""
+  });
 
-  // Delete confirmation dialog for single deletion
+  // Delete confirmation for single deletion
   const [deleteAlertOpen, setDeleteAlertOpen] = useState(false);
   const [subscriptionToDelete, setSubscriptionToDelete] = useState(null);
   const deleteCancelRef = useRef();
@@ -79,15 +88,13 @@ const SubscriptionManagement = () => {
 
   const toast = useToast();
 
-  // Fetch subscriptions from API on mount.
+  // Fetch subscriptions from API on mount
   useEffect(() => {
     async function fetchSubscriptions() {
       try {
         setLoading(true);
         const res = await fetch("/api/subscriptions", {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-          },
+          headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` }
         });
         if (!res.ok) throw new Error("Failed to fetch subscriptions");
         const data = await res.json();
@@ -98,7 +105,7 @@ const SubscriptionManagement = () => {
           description: err.message,
           status: "error",
           duration: 3000,
-          isClosable: true,
+          isClosable: true
         });
       } finally {
         setLoading(false);
@@ -107,15 +114,14 @@ const SubscriptionManagement = () => {
     fetchSubscriptions();
   }, [toast]);
 
-  // Combine basic search and additional filters.
+  // Combine basic search and additional filters
   const filteredSubscriptions = useMemo(() => {
     return subscriptions.filter((sub) => {
       const matchesName = (sub.name ? sub.name.toLowerCase() : "").includes(
         searchTerm.toLowerCase()
       );
       const matchesStatus = filterStatus === "" || sub.status === filterStatus;
-      const matchesDuration =
-        filterDuration === "" || sub.duration === filterDuration;
+      const matchesDuration = filterDuration === "" || sub.duration === filterDuration;
       let matchesAutoRenew = true;
       if (filterAutoRenew !== "") {
         const filterBool = filterAutoRenew === "true";
@@ -125,7 +131,7 @@ const SubscriptionManagement = () => {
     });
   }, [subscriptions, searchTerm, filterStatus, filterDuration, filterAutoRenew]);
 
-  // Multi-parameter sorting.
+  // Multi-parameter sorting
   const sortedSubscriptions = useMemo(() => {
     const subs = [...filteredSubscriptions];
     subs.sort((a, b) => {
@@ -134,20 +140,15 @@ const SubscriptionManagement = () => {
         let aValue = a[primarySortKey] || "";
         let bValue = b[primarySortKey] || "";
         if (typeof aValue === "number" && typeof bValue === "number") {
-          result =
-            sortPrimaryDirection === "asc" ? aValue - bValue : bValue - aValue;
+          result = sortPrimaryDirection === "asc" ? aValue - bValue : bValue - aValue;
         } else {
           aValue = aValue.toString().toLowerCase();
           bValue = bValue.toString().toLowerCase();
           result =
             aValue < bValue
-              ? sortPrimaryDirection === "asc"
-                ? -1
-                : 1
+              ? sortPrimaryDirection === "asc" ? -1 : 1
               : aValue > bValue
-              ? sortPrimaryDirection === "asc"
-                ? 1
-                : -1
+              ? sortPrimaryDirection === "asc" ? 1 : -1
               : 0;
         }
       }
@@ -155,22 +156,15 @@ const SubscriptionManagement = () => {
         let aValue = a[secondarySortKey] || "";
         let bValue = b[secondarySortKey] || "";
         if (typeof aValue === "number" && typeof bValue === "number") {
-          result =
-            sortSecondaryDirection === "asc"
-              ? aValue - bValue
-              : bValue - aValue;
+          result = sortSecondaryDirection === "asc" ? aValue - bValue : bValue - aValue;
         } else {
           aValue = aValue.toString().toLowerCase();
           bValue = bValue.toString().toLowerCase();
           result =
             aValue < bValue
-              ? sortSecondaryDirection === "asc"
-                ? -1
-                : 1
+              ? sortSecondaryDirection === "asc" ? -1 : 1
               : aValue > bValue
-              ? sortSecondaryDirection === "asc"
-                ? 1
-                : -1
+              ? sortSecondaryDirection === "asc" ? 1 : -1
               : 0;
         }
       }
@@ -182,17 +176,17 @@ const SubscriptionManagement = () => {
     primarySortKey,
     sortPrimaryDirection,
     secondarySortKey,
-    sortSecondaryDirection,
+    sortSecondaryDirection
   ]);
 
-  // Pagination calculations.
+  // Pagination calculations
   const totalPages = Math.ceil(sortedSubscriptions.length / pageSize);
   const paginatedSubscriptions = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     return sortedSubscriptions.slice(start, start + pageSize);
   }, [sortedSubscriptions, currentPage]);
 
-  // Handler for clicking a column header to update primary sort.
+  // Handler for clicking a column header to update primary sort
   const handleSort = (key) => {
     if (primarySortKey === key) {
       setSortPrimaryDirection((prev) => (prev === "asc" ? "desc" : "asc"));
@@ -202,10 +196,10 @@ const SubscriptionManagement = () => {
     }
   };
 
-  // --- Function declarations to ensure hoisting ---
+  // ---- Function declarations (hoisted) ----
 
+  // Open add/edit modal for a single subscription
   function openEditModal(subscription) {
-    console.log("[DEBUG] Opening edit modal for subscription:", subscription.id);
     setEditingSubscription(subscription);
     setIsModalOpen(true);
   }
@@ -215,8 +209,8 @@ const SubscriptionManagement = () => {
     setIsModalOpen(false);
   }
 
+  // Open delete confirmation for a single subscription
   function openDeleteDialog(subscription) {
-    console.log("[DEBUG] Opening delete confirmation for:", subscription.id);
     setSubscriptionToDelete(subscription);
     setDeleteAlertOpen(true);
   }
@@ -229,9 +223,7 @@ const SubscriptionManagement = () => {
     try {
       const res = await fetch(`/api/subscriptions/${subscriptionToDelete.id}`, {
         method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-        },
+        headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` }
       });
       if (!res.ok) throw new Error("Failed to delete subscription");
       setSubscriptions((prev) =>
@@ -242,7 +234,7 @@ const SubscriptionManagement = () => {
         description: "Subscription deleted successfully.",
         status: "success",
         duration: 3000,
-        isClosable: true,
+        isClosable: true
       });
     } catch (err) {
       toast({
@@ -250,14 +242,14 @@ const SubscriptionManagement = () => {
         description: err.message,
         status: "error",
         duration: 3000,
-        isClosable: true,
+        isClosable: true
       });
     } finally {
       closeDeleteDialog();
     }
   }
 
-  // Bulk selection handlers.
+  // Bulk selection handlers
   function handleSelectAll(e) {
     if (e.target.checked) {
       const currentPageIds = paginatedSubscriptions.map((sub) => sub.id);
@@ -284,7 +276,7 @@ const SubscriptionManagement = () => {
     }
   }
 
-  // Bulk deletion handlers.
+  // Bulk deletion handlers
   function openBulkDeleteDialog() {
     setBulkDeleteAlertOpen(true);
   }
@@ -298,9 +290,7 @@ const SubscriptionManagement = () => {
       const deletePromises = selectedSubscriptions.map((id) =>
         fetch(`/api/subscriptions/${id}`, {
           method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-          },
+          headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` }
         })
       );
       const responses = await Promise.all(deletePromises);
@@ -317,7 +307,7 @@ const SubscriptionManagement = () => {
         description: "Selected subscriptions deleted successfully.",
         status: "success",
         duration: 3000,
-        isClosable: true,
+        isClosable: true
       });
     } catch (err) {
       toast({
@@ -325,7 +315,7 @@ const SubscriptionManagement = () => {
         description: err.message,
         status: "error",
         duration: 3000,
-        isClosable: true,
+        isClosable: true
       });
     } finally {
       closeBulkDeleteDialog();
@@ -336,9 +326,7 @@ const SubscriptionManagement = () => {
     try {
       const res = await fetch(`/api/subscriptions/${id}/toggle`, {
         method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-        },
+        headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` }
       });
       if (!res.ok) throw new Error("Failed to toggle subscription status");
       const updatedSub = await res.json();
@@ -350,7 +338,7 @@ const SubscriptionManagement = () => {
         description: "Subscription status toggled successfully.",
         status: "success",
         duration: 3000,
-        isClosable: true,
+        isClosable: true
       });
     } catch (err) {
       toast({
@@ -358,12 +346,64 @@ const SubscriptionManagement = () => {
         description: err.message,
         status: "error",
         duration: 3000,
-        isClosable: true,
+        isClosable: true
       });
     }
   }
 
-  // --- End function declarations ---
+  // Bulk Edit functionality
+  function openBulkEditModal() {
+    setIsBulkEditModalOpen(true);
+  }
+
+  function closeBulkEditModal() {
+    setIsBulkEditModalOpen(false);
+    setBulkEditData({ status: "", duration: "", price: "" });
+  }
+
+  async function handleBulkEditSubmit() {
+    try {
+      const updatePromises = selectedSubscriptions.map((id) =>
+        fetch(`/api/subscriptions/${id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("authToken")}`
+          },
+          body: JSON.stringify(bulkEditData)
+        }).then((res) => {
+          if (!res.ok) throw new Error("Failed to update subscription with id " + id);
+          return res.json();
+        })
+      );
+      const updatedSubscriptions = await Promise.all(updatePromises);
+      setSubscriptions((prev) =>
+        prev.map((sub) => {
+          const updated = updatedSubscriptions.find((u) => u.id === sub.id);
+          return updated ? updated : sub;
+        })
+      );
+      setSelectedSubscriptions([]);
+      toast({
+        title: "Updated",
+        description: "Selected subscriptions updated successfully.",
+        status: "success",
+        duration: 3000,
+        isClosable: true
+      });
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: err.message,
+        status: "error",
+        duration: 3000,
+        isClosable: true
+      });
+    } finally {
+      closeBulkEditModal();
+    }
+  }
+  // ---- End function declarations ----
 
   return (
     <AdminLayout>
@@ -442,6 +482,9 @@ const SubscriptionManagement = () => {
         {selectedSubscriptions.length > 0 && (
           <Flex mb={4} align="center" justify="flex-end" gap={4}>
             <Text>{selectedSubscriptions.length} selected</Text>
+            <Button size="sm" colorScheme="blue" onClick={openBulkEditModal}>
+              Edit Selected
+            </Button>
             <Button size="sm" colorScheme="red" onClick={openBulkDeleteDialog}>
               Delete Selected
             </Button>
@@ -524,11 +567,16 @@ const SubscriptionManagement = () => {
         ) : (
           <>
             <TableContainer>
-              <Table variant="simple">
+              {/* Set border spacing to 0 to remove extra gaps */}
+              <Table variant="simple" sx={{ borderSpacing: 0 }}>
                 <Thead>
                   <Tr>
-                    <Th>
+                    {/* Checkbox cell: reduced padding and minimal width */}
+                    <Th p={0} minW="30px">
                       <Checkbox
+                        size="sm"
+                        m={0}
+                        p={0}
                         isChecked={
                           paginatedSubscriptions.length > 0 &&
                           paginatedSubscriptions.every((sub) =>
@@ -538,7 +586,7 @@ const SubscriptionManagement = () => {
                         onChange={handleSelectAll}
                       />
                     </Th>
-                    <Th onClick={() => handleSort("name")} cursor="pointer">
+                    <Th onClick={() => handleSort("name")} cursor="pointer" p={1}>
                       Name{" "}
                       {primarySortKey === "name" &&
                         (sortPrimaryDirection === "asc" ? (
@@ -547,7 +595,7 @@ const SubscriptionManagement = () => {
                           <TriangleDownIcon ml={1} />
                         ))}
                     </Th>
-                    <Th onClick={() => handleSort("price")} cursor="pointer">
+                    <Th onClick={() => handleSort("price")} cursor="pointer" p={1}>
                       Price{" "}
                       {primarySortKey === "price" &&
                         (sortPrimaryDirection === "asc" ? (
@@ -556,7 +604,7 @@ const SubscriptionManagement = () => {
                           <TriangleDownIcon ml={1} />
                         ))}
                     </Th>
-                    <Th onClick={() => handleSort("duration")} cursor="pointer">
+                    <Th onClick={() => handleSort("duration")} cursor="pointer" p={1}>
                       Duration{" "}
                       {primarySortKey === "duration" &&
                         (sortPrimaryDirection === "asc" ? (
@@ -565,7 +613,7 @@ const SubscriptionManagement = () => {
                           <TriangleDownIcon ml={1} />
                         ))}
                     </Th>
-                    <Th onClick={() => handleSort("status")} cursor="pointer">
+                    <Th onClick={() => handleSort("status")} cursor="pointer" p={1}>
                       Status{" "}
                       {primarySortKey === "status" &&
                         (sortPrimaryDirection === "asc" ? (
@@ -574,7 +622,7 @@ const SubscriptionManagement = () => {
                           <TriangleDownIcon ml={1} />
                         ))}
                     </Th>
-                    <Th>Actions</Th>
+                    <Th p={1}>Actions</Th>
                   </Tr>
                 </Thead>
                 <Tbody>
@@ -587,17 +635,24 @@ const SubscriptionManagement = () => {
                   ) : (
                     paginatedSubscriptions.map((sub) => (
                       <Tr key={sub.id}>
-                        <Td>
+                        <Td p={0}>
                           <Checkbox
+                            size="sm"
+                            m={0}
+                            p={0}
                             isChecked={selectedSubscriptions.includes(sub.id)}
                             onChange={() => handleSelectOne(sub.id)}
                           />
                         </Td>
-                        <Td>{sub.name}</Td>
-                        <Td>${sub.price}</Td>
-                        <Td textTransform="capitalize">{sub.duration}</Td>
-                        <Td textTransform="capitalize">{sub.status}</Td>
-                        <Td>
+                        <Td p={1}>{sub.name}</Td>
+                        <Td p={1}>${sub.price}</Td>
+                        <Td p={1} textTransform="capitalize">
+                          {sub.duration}
+                        </Td>
+                        <Td p={1} textTransform="capitalize">
+                          {sub.status}
+                        </Td>
+                        <Td p={1}>
                           <IconButton
                             aria-label="Edit Subscription"
                             icon={<EditIcon />}
@@ -612,10 +667,7 @@ const SubscriptionManagement = () => {
                             mr={2}
                             onClick={() => openDeleteDialog(sub)}
                           />
-                          <Button
-                            size="sm"
-                            onClick={() => handleToggleStatus(sub.id)}
-                          >
+                          <Button size="sm" onClick={() => handleToggleStatus(sub.id)}>
                             Toggle Status
                           </Button>
                         </Td>
@@ -636,7 +688,9 @@ const SubscriptionManagement = () => {
                 Page {currentPage} of {totalPages || 1}
               </Text>
               <Button
-                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                onClick={() =>
+                  setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                }
                 disabled={currentPage === totalPages || totalPages === 0}
               >
                 Next
@@ -654,9 +708,7 @@ const SubscriptionManagement = () => {
             onSubmit={(updatedSub) => {
               if (editingSubscription) {
                 setSubscriptions((subs) =>
-                  subs.map((sub) =>
-                    sub.id === updatedSub.id ? updatedSub : sub
-                  )
+                  subs.map((sub) => (sub.id === updatedSub.id ? updatedSub : sub))
                 );
               } else {
                 setSubscriptions((subs) => [...subs, updatedSub]);
@@ -721,6 +773,65 @@ const SubscriptionManagement = () => {
             </AlertDialogContent>
           </AlertDialogOverlay>
         </AlertDialog>
+
+        {/* Bulk Edit Modal */}
+        {isBulkEditModalOpen && (
+          <Modal isOpen={isBulkEditModalOpen} onClose={closeBulkEditModal} isCentered>
+            <ModalOverlay />
+            <ModalContent>
+              <ModalHeader>Bulk Edit Subscriptions</ModalHeader>
+              <ModalCloseButton />
+              <ModalBody>
+                <FormControl mb={4}>
+                  <FormLabel>Status</FormLabel>
+                  <Select
+                    placeholder="No Change"
+                    value={bulkEditData.status}
+                    onChange={(e) =>
+                      setBulkEditData((prev) => ({ ...prev, status: e.target.value }))
+                    }
+                  >
+                    <option value="active">Active</option>
+                    <option value="deprecated">Deprecated</option>
+                    <option value="suspended">Suspended</option>
+                  </Select>
+                </FormControl>
+                <FormControl mb={4}>
+                  <FormLabel>Duration</FormLabel>
+                  <Select
+                    placeholder="No Change"
+                    value={bulkEditData.duration}
+                    onChange={(e) =>
+                      setBulkEditData((prev) => ({ ...prev, duration: e.target.value }))
+                    }
+                  >
+                    <option value="monthly">Monthly</option>
+                    <option value="yearly">Yearly</option>
+                  </Select>
+                </FormControl>
+                <FormControl mb={4}>
+                  <FormLabel>Price</FormLabel>
+                  <Input
+                    placeholder="Enter new price"
+                    type="number"
+                    value={bulkEditData.price}
+                    onChange={(e) =>
+                      setBulkEditData((prev) => ({ ...prev, price: e.target.value }))
+                    }
+                  />
+                </FormControl>
+              </ModalBody>
+              <ModalFooter>
+                <Button variant="ghost" mr={3} onClick={closeBulkEditModal}>
+                  Cancel
+                </Button>
+                <Button colorScheme="blue" onClick={handleBulkEditSubmit}>
+                  Save Changes
+                </Button>
+              </ModalFooter>
+            </ModalContent>
+          </Modal>
+        )}
       </Box>
     </AdminLayout>
   );
