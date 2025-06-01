@@ -1,4 +1,5 @@
-// models/tenant.js
+// backend/src/models/Tenant.js
+
 module.exports = (sequelize, DataTypes) => {
   const Tenant = sequelize.define(
     'Tenant',
@@ -10,29 +11,22 @@ module.exports = (sequelize, DataTypes) => {
       },
       name: {
         type: DataTypes.STRING,
-        unique: false,
         allowNull: false,
-      },
-      industry: {
-        type: DataTypes.STRING,
-      },
-      subscriptionTier: {
-        type: DataTypes.STRING,
-      },
-      isActive: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: true,
-      },
-      logoUrl: {
-        type: DataTypes.STRING,
-      },
-      themeColor: {
-        type: DataTypes.STRING,
       },
       domain: {
         type: DataTypes.STRING,
         allowNull: false,
         comment: "Tenant's domain (e.g., example.com)",
+      },
+      // Remove subscriptionTier field completely.
+      // Instead, we use subscriptionId to reference the Subscription model.
+      subscriptionId: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        comment: "Foreign key referencing Subscription plan",
+      },
+      industry: {
+        type: DataTypes.STRING,
       },
       companyWebsite: {
         type: DataTypes.STRING,
@@ -55,7 +49,6 @@ module.exports = (sequelize, DataTypes) => {
       billingPhone: {
         type: DataTypes.STRING,
       },
-      // Updated MFA fields:
       mfaEnabled: {
         type: DataTypes.BOOLEAN,
         defaultValue: false,
@@ -66,15 +59,29 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: [],
         comment: 'Array of allowed MFA methods for the tenant (e.g., ["EMAIL", "SMS", "TOTP"])',
       },
+      isActive: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true,
+      },
+      logoUrl: {
+        type: DataTypes.STRING,
+      },
+      themeColor: {
+        type: DataTypes.STRING,
+      },
     },
     {
       tableName: 'Tenants',
-      timestamps: true, // createdAt and updatedAt are added automatically
+      timestamps: true,
     }
   );
 
   Tenant.associate = function (models) {
-    // Define associations here, if any.
+    // Associate a Tenant with a Subscription plan.
+    Tenant.belongsTo(models.Subscription, {
+      foreignKey: 'subscriptionId',
+      as: 'subscription',
+    });
   };
 
   return Tenant;
