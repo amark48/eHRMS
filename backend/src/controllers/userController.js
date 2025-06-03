@@ -419,6 +419,69 @@ const createUser = asyncHandler(async (req, res) => {
   });
 });
 
+// POST /api/users/register - Register a new tenant and create the first admin user
+export const register = asyncHandler(async (req, res) => {
+  console.log("[DEBUG] Received req.body in register:", req.body);
+
+  // Extract required fields from the request body
+  const { firstName, lastName, email, company, password } = req.body;
+
+  // Validate required fields
+  if (!firstName || !lastName || !email || !company || !password) {
+    res.status(400);
+    throw new Error("Missing required fields. Please provide firstName, lastName, email, company, and password.");
+  }
+
+  // Check if a tenant already exists with this corporate email (stored in emailAdmin)
+  const existingTenant = await Tenant.findOne({ where: { emailAdmin: email } });
+  if (existingTenant) {
+    res.status(400);
+    throw new Error("A tenant with this corporate email already exists.");
+  }
+
+  // Create a new Tenant record.
+  // Here, the company name is stored as 'name' and the corporate email is stored in 'emailAdmin'
+  const tenant = await Tenant.create({
+    name: company,
+    emailAdmin: email,
+    isActive: true, // or set an appropriate default active status
+  });
+
+  // Hash the provided password
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  // Set a default roleId for the admin user.
+  // This may be a constant or you could look it up from your roles table.
+  // For example, here we assume a roleId of 2 represents a tenant admin.
+  const defaultAdminRoleId = 2;
+
+  // Now create the admin user for the tenant using the new tenant's ID.
+  const newUser = await User.create({
+    firstName,
+    lastName,
+    email,
+    tenantId: tenant.id, // assign the newly created tenant's ID
+    roleId: defaultAdminRoleId,
+    password: hashedPassword,
+    // Other properties such as mfaEnabled, avatar, etc. can be added if needed.
+  });
+
+  console.log("[DEBUG] New tenant and admin user created:", { tenant, newUser });
+
+  res.status(201).json({
+    message: "Registration successful",
+    tenant: { id: tenant.id, name: tenant.name, emailAdmin: tenant.emailAdmin },
+    user: {
+      id: newUser.id,
+      firstName: newUser.firstName,
+      lastName: newUser.lastName,
+      email: newUser.email,
+      tenantId: newUser.tenantId,
+    },
+  });
+});
+
+
 // DELETE /api/users/:id - Delete a user
 const deleteUser = asyncHandler(async (req, res) => {
   const userId = req.params.id;

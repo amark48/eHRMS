@@ -1,5 +1,4 @@
-// backend/src/models/Tenant.js
-
+// models/Tenant.js
 module.exports = (sequelize, DataTypes) => {
   const Tenant = sequelize.define(
     'Tenant',
@@ -16,10 +15,15 @@ module.exports = (sequelize, DataTypes) => {
       domain: {
         type: DataTypes.STRING,
         allowNull: false,
+        unique: true,
         comment: "Tenant's domain (e.g., example.com)",
       },
-      // Remove subscriptionTier field completely.
-      // Instead, we use subscriptionId to reference the Subscription model.
+      adminEmail: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true,
+        comment: "Primary admin's corporate email used as the username",
+      },
       subscriptionId: {
         type: DataTypes.UUID,
         allowNull: true,
@@ -57,7 +61,7 @@ module.exports = (sequelize, DataTypes) => {
       allowedMfa: {
         type: DataTypes.ARRAY(DataTypes.STRING),
         defaultValue: [],
-        comment: 'Array of allowed MFA methods for the tenant (e.g., ["EMAIL", "SMS", "TOTP"])',
+        comment: 'Array of allowed MFA methods for the tenant',
       },
       isActive: {
         type: DataTypes.BOOLEAN,
@@ -77,11 +81,12 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   Tenant.associate = function (models) {
-    // Associate a Tenant with a Subscription plan.
+    // Associate Tenant with Subscription (if applicable)
     Tenant.belongsTo(models.Subscription, {
       foreignKey: 'subscriptionId',
       as: 'subscription',
     });
+    // Association with User will be set up later in models/index.js
   };
 
   return Tenant;

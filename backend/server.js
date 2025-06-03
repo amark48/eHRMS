@@ -12,6 +12,7 @@ const roleRoutes = require("./src/routes/roleRoutes");
 const subscriptionRoutes = require("./src/routes/subscriptionRoutes");
 const uploadRoutes = require("./src/routes/uploadRoutes");
 const avatarUploadRoutes = require("./src/routes/avatarUploadRoutes");
+const billingRoutes = require("./src/routes/billingRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -24,15 +25,17 @@ console.log("[DEBUG] Loaded Routes:", {
   roleRoutes,
   subscriptionRoutes,
   uploadRoutes,
+  billingRoutes
 });
 
-// Enable CORS.
+// Enable CORS with multiple origins
 app.use(
   cors({
-    origin: "http://localhost:3000",
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS","PATCH"],
+    origin: ["http://localhost:4000", "http://localhost:3000"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
   })
 );
+
 
 // Middleware to parse JSON and URL-encoded requests.
 app.use(express.json());
@@ -59,6 +62,8 @@ app.use("/api/subscriptions", subscriptionRoutes);
 app.use("/api/upload", uploadRoutes);
 // For avatar uploads, mount under "/upload-avatar".
 app.use("/upload-avatar", avatarUploadRoutes);
+
+app.use("/api/billings", billingRoutes);
 
 // Handle unmatched routes.
 app.use((req, res, next) => {
