@@ -33,7 +33,8 @@ import {
   ModalHeader,
   ModalBody,
   ModalFooter,
-  ModalCloseButton
+  ModalCloseButton,
+  Tooltip
 } from "@chakra-ui/react";
 import {
   AddIcon,
@@ -46,46 +47,46 @@ import {
 import AdminLayout from "../components/AdminLayout";
 import SubscriptionFormModal from "../components/SubscriptionFormModal";
 import SubscriptionDetailModal from "../components/SubscriptionDetailModal";
-
-// Import Recharts components for analytics charts
-import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
+import SubscriptionAnalytics from "../components/SubscriptionAnalytics";
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  Tooltip as RechartsTooltip, 
+  CartesianGrid, 
+  ResponsiveContainer 
+} from "recharts";
 
 const SubscriptionManagement = () => {
-  // Basic state & data fetching
+  // ------------------- State Definitions -------------------
   const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Basic search input
+  // Search & Filter state
   const [searchTerm, setSearchTerm] = useState("");
-
-  // Additional Filters
-  const [filterStatus, setFilterStatus] = useState(""); // "", "active", "deprecated", "suspended"
-  const [filterDuration, setFilterDuration] = useState(""); // "", "monthly", "yearly"
-  const [filterAutoRenew, setFilterAutoRenew] = useState(""); // "", "true", "false"
+  const [filterStatus, setFilterStatus] = useState("");  // options: "", "active", "deprecated", "suspended"
+  const [filterDuration, setFilterDuration] = useState(""); // options: "", "monthly", "yearly"
+  const [filterAutoRenew, setFilterAutoRenew] = useState(""); // options: "", "true", "false"
+  // NEW: Price Range Filters
+  const [filterMinPrice, setFilterMinPrice] = useState("");
+  const [filterMaxPrice, setFilterMaxPrice] = useState("");
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
 
-  // Modal state for add/edit
+  // Modal states for add/edit/bulk edit, deletion, and detail view
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSubscription, setEditingSubscription] = useState(null);
-
-  // Bulk edit state
   const [isBulkEditModalOpen, setIsBulkEditModalOpen] = useState(false);
   const [bulkEditData, setBulkEditData] = useState({ status: "", duration: "", price: "" });
-
-  // Delete confirmation dialog for single deletion
   const [deleteAlertOpen, setDeleteAlertOpen] = useState(false);
   const [subscriptionToDelete, setSubscriptionToDelete] = useState(null);
   const deleteCancelRef = useRef();
-
-  // Bulk deletion state
   const [selectedSubscriptions, setSelectedSubscriptions] = useState([]);
   const [bulkDeleteAlertOpen, setBulkDeleteAlertOpen] = useState(false);
   const bulkDeleteCancelRef = useRef();
-
-  // Detail view modal state
   const [detailModalSubscription, setDetailModalSubscription] = useState(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
@@ -97,7 +98,7 @@ const SubscriptionManagement = () => {
 
   const toast = useToast();
 
-  // Fetch subscriptions from API on mount.
+  // ------------------- Data Fetching -------------------
   useEffect(() => {
     async function fetchSubscriptions() {
       try {
@@ -123,10 +124,25 @@ const SubscriptionManagement = () => {
     fetchSubscriptions();
   }, [toast]);
 
-  // Combine basic search and additional filters.
+  // ------------------- Global Metrics Dashboard -------------------
+  const globalMetrics = useMemo(() => {
+    const totalSubscriptions = subscriptions.length;
+    const totalRevenue = subscriptions.reduce((sum, sub) => sum + Number(sub.price || 0), 0);
+    // Count upcoming renewals based on renewalDate within next 30 days.
+    const now = new Date();
+    const upcomingRenewals = subscriptions.filter((sub) => {
+      if (!sub.renewalDate) return false;
+      const renewalDate = new Date(sub.renewalDate);
+      const diffDays = (renewalDate - now) / (1000 * 60 * 60 * 24);
+      return diffDays >= 0 && diffDays <= 30;
+    }).length;
+    return { totalSubscriptions, totalRevenue, upcomingRenewals };
+  }, [subscriptions]);
+
+  // ------------------- Filtering Logic -------------------
   const filteredSubscriptions = useMemo(() => {
     return subscriptions.filter((sub) => {
-      const matchesName = (sub.name ? sub.name.toLowerCase() : "").includes(searchTerm.toLowerCase());
+      const matchesName = (sub.name || "").toLowerCase().includes(searchTerm.toLowerCase());
       const matchesStatus = filterStatus === "" || sub.status === filterStatus;
       const matchesDuration = filterDuration === "" || sub.duration === filterDuration;
       let matchesAutoRenew = true;
@@ -134,11 +150,19 @@ const SubscriptionManagement = () => {
         const filterBool = filterAutoRenew === "true";
         matchesAutoRenew = sub.autoRenew === filterBool;
       }
-      return matchesName && matchesStatus && matchesDuration && matchesAutoRenew;
+      let matchesMinPrice = true;
+      if (filterMinPrice !== "") {
+        matchesMinPrice = Number(sub.price) >= Number(filterMinPrice);
+      }
+      let matchesMaxPrice = true;
+      if (filterMaxPrice !== "") {
+        matchesMaxPrice = Number(sub.price) <= Number(filterMaxPrice);
+      }
+      return matchesName && matchesStatus && matchesDuration && matchesAutoRenew && matchesMinPrice && matchesMaxPrice;
     });
-  }, [subscriptions, searchTerm, filterStatus, filterDuration, filterAutoRenew]);
+  }, [subscriptions, searchTerm, filterStatus, filterDuration, filterAutoRenew, filterMinPrice, filterMaxPrice]);
 
-  // Multi-parameter sorting.
+  // ------------------- Sorting Logic -------------------
   const sortedSubscriptions = useMemo(() => {
     const subs = [...filteredSubscriptions];
     subs.sort((a, b) => {
@@ -151,12 +175,9 @@ const SubscriptionManagement = () => {
         } else {
           aValue = aValue.toString().toLowerCase();
           bValue = bValue.toString().toLowerCase();
-          result =
-            aValue < bValue
-              ? sortPrimaryDirection === "asc" ? -1 : 1
-              : aValue > bValue
-              ? sortPrimaryDirection === "asc" ? 1 : -1
-              : 0;
+          if (aValue < bValue) result = sortPrimaryDirection === "asc" ? -1 : 1;
+          else if (aValue > bValue) result = sortPrimaryDirection === "asc" ? 1 : -1;
+          else result = 0;
         }
       }
       if (result === 0 && secondarySortKey) {
@@ -167,12 +188,9 @@ const SubscriptionManagement = () => {
         } else {
           aValue = aValue.toString().toLowerCase();
           bValue = bValue.toString().toLowerCase();
-          result =
-            aValue < bValue
-              ? sortSecondaryDirection === "asc" ? -1 : 1
-              : aValue > bValue
-              ? sortSecondaryDirection === "asc" ? 1 : -1
-              : 0;
+          if (aValue < bValue) result = sortSecondaryDirection === "asc" ? -1 : 1;
+          else if (aValue > bValue) result = sortSecondaryDirection === "asc" ? 1 : -1;
+          else result = 0;
         }
       }
       return result;
@@ -180,14 +198,14 @@ const SubscriptionManagement = () => {
     return subs;
   }, [filteredSubscriptions, primarySortKey, sortPrimaryDirection, secondarySortKey, sortSecondaryDirection]);
 
-  // Pagination calculations.
+  // ------------------- Pagination -------------------
   const totalPages = Math.ceil(sortedSubscriptions.length / pageSize);
   const paginatedSubscriptions = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     return sortedSubscriptions.slice(start, start + pageSize);
   }, [sortedSubscriptions, currentPage]);
 
-  // Handler for clicking a column header to update primary sort.
+  // ------------------- Handler Functions -------------------
   const handleSort = (key) => {
     if (primarySortKey === key) {
       setSortPrimaryDirection((prev) => (prev === "asc" ? "desc" : "asc"));
@@ -197,28 +215,30 @@ const SubscriptionManagement = () => {
     }
   };
 
-  // ---- Function declarations ----
-
-  function openEditModal(subscription) {
+  // Open modal for Add/Edit; for adding, editingSubscription will be null.
+  const openEditModal = (subscription) => {
     setEditingSubscription(subscription);
     setIsModalOpen(true);
-  }
-
-  function closeModal() {
+  };
+  const closeModal = () => {
     setEditingSubscription(null);
     setIsModalOpen(false);
-  }
+  };
 
-  function openDeleteDialog(subscription) {
+  // Open the Add Subscription modal.
+  const openAddModal = () => {
+    setEditingSubscription(null);
+    setIsModalOpen(true);
+  };
+
+  const openDeleteDialog = (subscription) => {
     setSubscriptionToDelete(subscription);
     setDeleteAlertOpen(true);
-  }
-
-  function closeDeleteDialog() {
+  };
+  const closeDeleteDialog = () => {
     setDeleteAlertOpen(false);
-  }
-
-  async function handleDeleteConfirmed() {
+  };
+  const handleDeleteConfirmed = async () => {
     try {
       const res = await fetch(`/api/subscriptions/${subscriptionToDelete.id}`, {
         method: "DELETE",
@@ -244,37 +264,33 @@ const SubscriptionManagement = () => {
     } finally {
       closeDeleteDialog();
     }
-  }
+  };
 
-  function handleSelectAll(e) {
+  const handleSelectAll = (e) => {
     if (e.target.checked) {
       const currentPageIds = paginatedSubscriptions.map((sub) => sub.id);
       const newSelected = Array.from(new Set([...selectedSubscriptions, ...currentPageIds]));
       setSelectedSubscriptions(newSelected);
     } else {
       const currentPageIds = paginatedSubscriptions.map((sub) => sub.id);
-      const newSelected = selectedSubscriptions.filter((id) => !currentPageIds.includes(id));
-      setSelectedSubscriptions(newSelected);
+      setSelectedSubscriptions(selectedSubscriptions.filter((id) => !currentPageIds.includes(id)));
     }
-  }
-
-  function handleSelectOne(id) {
+  };
+  const handleSelectOne = (id) => {
     if (selectedSubscriptions.includes(id)) {
       setSelectedSubscriptions(selectedSubscriptions.filter((selected) => selected !== id));
     } else {
       setSelectedSubscriptions([...selectedSubscriptions, id]);
     }
-  }
+  };
 
-  function openBulkDeleteDialog() {
+  const openBulkDeleteDialog = () => {
     setBulkDeleteAlertOpen(true);
-  }
-
-  function closeBulkDeleteDialog() {
+  };
+  const closeBulkDeleteDialog = () => {
     setBulkDeleteAlertOpen(false);
-  }
-
-  async function handleBulkDeleteConfirmed() {
+  };
+  const handleBulkDeleteConfirmed = async () => {
     try {
       const deletePromises = selectedSubscriptions.map((id) =>
         fetch(`/api/subscriptions/${id}`, {
@@ -284,12 +300,8 @@ const SubscriptionManagement = () => {
       );
       const responses = await Promise.all(deletePromises);
       const failed = responses.filter((res) => !res.ok);
-      if (failed.length) {
-        throw new Error("Some deletions failed");
-      }
-      setSubscriptions((prev) =>
-        prev.filter((sub) => !selectedSubscriptions.includes(sub.id))
-      );
+      if (failed.length) throw new Error("Some deletions failed");
+      setSubscriptions((prev) => prev.filter((sub) => !selectedSubscriptions.includes(sub.id)));
       setSelectedSubscriptions([]);
       toast({
         title: "Deleted",
@@ -309,9 +321,9 @@ const SubscriptionManagement = () => {
     } finally {
       closeBulkDeleteDialog();
     }
-  }
+  };
 
-  async function handleToggleStatus(id) {
+  const handleToggleStatus = async (id) => {
     try {
       const res = await fetch(`/api/subscriptions/${id}/toggle`, {
         method: "PATCH",
@@ -338,18 +350,16 @@ const SubscriptionManagement = () => {
         isClosable: true
       });
     }
-  }
+  };
 
-  function openBulkEditModal() {
+  const openBulkEditModal = () => {
     setIsBulkEditModalOpen(true);
-  }
-
-  function closeBulkEditModal() {
+  };
+  const closeBulkEditModal = () => {
     setIsBulkEditModalOpen(false);
     setBulkEditData({ status: "", duration: "", price: "" });
-  }
-
-  async function handleBulkEditSubmit() {
+  };
+  const handleBulkEditSubmit = async () => {
     try {
       const updatePromises = selectedSubscriptions.map((id) =>
         fetch(`/api/subscriptions/${id}`, {
@@ -360,8 +370,7 @@ const SubscriptionManagement = () => {
           },
           body: JSON.stringify(bulkEditData)
         }).then((res) => {
-          if (!res.ok)
-            throw new Error("Failed to update subscription with id " + id);
+          if (!res.ok) throw new Error("Failed to update subscription with id " + id);
           return res.json();
         })
       );
@@ -391,20 +400,18 @@ const SubscriptionManagement = () => {
     } finally {
       closeBulkEditModal();
     }
-  }
+  };
 
-  // Detail view modal functions.
-  function openDetailModal(subscription) {
+  const openDetailModal = (subscription) => {
     setDetailModalSubscription(subscription);
     setIsDetailModalOpen(true);
-  }
-
-  function closeDetailModal() {
+  };
+  const closeDetailModal = () => {
     setDetailModalSubscription(null);
     setIsDetailModalOpen(false);
-  }
-  // ---- End function declarations ----
+  };
 
+  // ------------------- Render JSX -------------------
   return (
     <AdminLayout>
       <Box p={6}>
@@ -421,28 +428,36 @@ const SubscriptionManagement = () => {
           <SubscriptionAnalytics subscriptions={subscriptions} />
         </Box>
 
-        {/* Top Row: Search, Filters & Add Subscription */}
+        {/* Global Metrics Dashboard */}
+        <Flex mb={6} justify="space-around" align="center" p={4} borderWidth={1} borderRadius="md" boxShadow="sm">
+          <Box textAlign="center">
+            <Text fontSize="sm" color="gray.500">Total Subscriptions</Text>
+            <Text fontSize="2xl" fontWeight="bold">{globalMetrics.totalSubscriptions}</Text>
+          </Box>
+          <Box textAlign="center">
+            <Text fontSize="sm" color="gray.500">Total Revenue ($)</Text>
+            <Text fontSize="2xl" fontWeight="bold">{globalMetrics.totalRevenue.toFixed(2)}</Text>
+          </Box>
+          <Box textAlign="center">
+            <Text fontSize="sm" color="gray.500">Upcoming Renewals</Text>
+            <Text fontSize="2xl" fontWeight="bold">{globalMetrics.upcomingRenewals}</Text>
+          </Box>
+        </Flex>
+
+        {/* Filters & Add Subscription Button in One Row (non-wrapping) */}
         <Flex mb={4} align="center" justify="space-between" flexWrap="nowrap">
-          <Flex align="center">
+          <Flex gap={2} flex="1" overflowX="auto">
             <Input
               placeholder="Search by name..."
               value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
+              onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
               maxW="200px"
-              mr={2}
             />
             <Select
               placeholder="Status"
               value={filterStatus}
-              onChange={(e) => {
-                setFilterStatus(e.target.value);
-                setCurrentPage(1);
-              }}
+              onChange={(e) => { setFilterStatus(e.target.value); setCurrentPage(1); }}
               maxW="150px"
-              mr={2}
             >
               <option value="active">Active</option>
               <option value="deprecated">Deprecated</option>
@@ -451,12 +466,8 @@ const SubscriptionManagement = () => {
             <Select
               placeholder="Duration"
               value={filterDuration}
-              onChange={(e) => {
-                setFilterDuration(e.target.value);
-                setCurrentPage(1);
-              }}
+              onChange={(e) => { setFilterDuration(e.target.value); setCurrentPage(1); }}
               maxW="150px"
-              mr={2}
             >
               <option value="monthly">Monthly</option>
               <option value="yearly">Yearly</option>
@@ -464,110 +475,33 @@ const SubscriptionManagement = () => {
             <Select
               placeholder="Auto Renew"
               value={filterAutoRenew}
-              onChange={(e) => {
-                setFilterAutoRenew(e.target.value);
-                setCurrentPage(1);
-              }}
+              onChange={(e) => { setFilterAutoRenew(e.target.value); setCurrentPage(1); }}
               maxW="150px"
             >
               <option value="true">Yes</option>
               <option value="false">No</option>
             </Select>
+            <Input
+              placeholder="Min Price"
+              type="number"
+              value={filterMinPrice}
+              onChange={(e) => { setFilterMinPrice(e.target.value); setCurrentPage(1); }}
+              maxW="120px"
+            />
+            <Input
+              placeholder="Max Price"
+              type="number"
+              value={filterMaxPrice}
+              onChange={(e) => { setFilterMaxPrice(e.target.value); setCurrentPage(1); }}
+              maxW="120px"
+            />
           </Flex>
-          <Button
-            leftIcon={<AddIcon />}
-            colorScheme="blue"
-            onClick={() => {
-              setEditingSubscription(null);
-              setIsModalOpen(true);
-            }}
-          >
+          <Button leftIcon={<AddIcon />} colorScheme="blue" onClick={openAddModal} ml={4}>
             Add Subscription
           </Button>
         </Flex>
 
-        {/* Bulk Actions Bar */}
-        {selectedSubscriptions.length > 0 && (
-          <Flex mb={4} align="center" justify="flex-end" gap={4}>
-            <Text>{selectedSubscriptions.length} selected</Text>
-            <Button size="sm" colorScheme="blue" onClick={openBulkEditModal}>
-              Edit Selected
-            </Button>
-            <Button size="sm" colorScheme="red" onClick={openBulkDeleteDialog}>
-              Delete Selected
-            </Button>
-            <Button size="sm" onClick={() => setSelectedSubscriptions([])}>
-              Clear Selection
-            </Button>
-          </Flex>
-        )}
-
-        {/* Advanced Sorting Options */}
-        <Flex mb={4} align="center" flexWrap="nowrap" gap={4}>
-          <Box>
-            <FormControl display="flex" alignItems="center">
-              <FormLabel mb="0" whiteSpace="nowrap" fontWeight="bold" mr={2}>
-                Primary Sort:
-              </FormLabel>
-              <Select
-                value={primarySortKey}
-                onChange={(e) => setPrimarySortKey(e.target.value)}
-                size="sm"
-                maxW="150px"
-              >
-                <option value="name">Name</option>
-                <option value="price">Price</option>
-                <option value="duration">Duration</option>
-                <option value="status">Status</option>
-                <option value="trialPeriodDays">Trial Days</option>
-              </Select>
-              <Select
-                value={sortPrimaryDirection}
-                onChange={(e) => setSortPrimaryDirection(e.target.value)}
-                size="sm"
-                maxW="100px"
-                ml={2}
-              >
-                <option value="asc">Asc</option>
-                <option value="desc">Desc</option>
-              </Select>
-            </FormControl>
-          </Box>
-          <Box>
-            <FormControl display="flex" alignItems="center">
-              <FormLabel mb="0" whiteSpace="nowrap" fontWeight="bold" mr={2}>
-                Secondary Sort:
-              </FormLabel>
-              <Select
-                value={secondarySortKey}
-                onChange={(e) => setSecondarySortKey(e.target.value)}
-                size="sm"
-                maxW="150px"
-                mr={2}
-              >
-                <option value="">None</option>
-                <option value="name">Name</option>
-                <option value="price">Price</option>
-                <option value="duration">Duration</option>
-                <option value="status">Status</option>
-                <option value="trialPeriodDays">Trial Days</option>
-              </Select>
-              {secondarySortKey && (
-                <Select
-                  value={sortSecondaryDirection}
-                  onChange={(e) => setSortSecondaryDirection(e.target.value)}
-                  size="sm"
-                  maxW="100px"
-                  ml={2}
-                >
-                  <option value="asc">Asc</option>
-                  <option value="desc">Desc</option>
-                </Select>
-              )}
-            </FormControl>
-          </Box>
-        </Flex>
-
+        {/* Table */}
         {loading ? (
           <Flex justify="center" align="center" minH="200px">
             <Spinner size="xl" />
@@ -575,14 +509,12 @@ const SubscriptionManagement = () => {
         ) : (
           <>
             <TableContainer>
-              <Table variant="simple" sx={{ borderSpacing: 0 }}>
+              <Table variant="simple">
                 <Thead>
                   <Tr>
-                    <Th p={0} minW="30px">
+                    <Th p={1} minW="30px">
                       <Checkbox
                         size="sm"
-                        m={0}
-                        p={0}
                         isChecked={
                           paginatedSubscriptions.length > 0 &&
                           paginatedSubscriptions.every((sub) =>
@@ -592,43 +524,42 @@ const SubscriptionManagement = () => {
                         onChange={handleSelectAll}
                       />
                     </Th>
-                    <Th onClick={() => handleSort("name")} cursor="pointer" p={1}>
-                      Name{" "}
-                      {primarySortKey === "name" &&
-                        (sortPrimaryDirection === "asc" ? (
-                          <TriangleUpIcon ml={1} />
-                        ) : (
-                          <TriangleDownIcon ml={1} />
-                        ))}
+                    <Th p={1}>
+                      <Tooltip label="Subscription Name" hasArrow>
+                        <span onClick={() => handleSort("name")} style={{ cursor: "pointer" }}>
+                          Name{" "}
+                          {primarySortKey === "name" &&
+                            (sortPrimaryDirection === "asc" ? <TriangleUpIcon ml={1} /> : <TriangleDownIcon ml={1} />)}
+                        </span>
+                      </Tooltip>
                     </Th>
-                    <Th onClick={() => handleSort("price")} cursor="pointer" p={1}>
-                      Price{" "}
-                      {primarySortKey === "price" &&
-                        (sortPrimaryDirection === "asc" ? (
-                          <TriangleUpIcon ml={1} />
-                        ) : (
-                          <TriangleDownIcon ml={1} />
-                        ))}
+                    <Th p={1}>
+                      <Tooltip label="Price (USD)" hasArrow>
+                        <span onClick={() => handleSort("price")} style={{ cursor: "pointer" }}>
+                          Price{" "}
+                          {primarySortKey === "price" &&
+                            (sortPrimaryDirection === "asc" ? <TriangleUpIcon ml={1} /> : <TriangleDownIcon ml={1} />)}
+                        </span>
+                      </Tooltip>
                     </Th>
-                    <Th onClick={() => handleSort("duration")} cursor="pointer" p={1}>
-                      Duration{" "}
-                      {primarySortKey === "duration" &&
-                        (sortPrimaryDirection === "asc" ? (
-                          <TriangleUpIcon ml={1} />
-                        ) : (
-                          <TriangleDownIcon ml={1} />
-                        ))}
+                    <Th p={1}>
+                      <Tooltip label="Billing Duration" hasArrow>
+                        <span onClick={() => handleSort("duration")} style={{ cursor: "pointer" }}>
+                          Duration{" "}
+                          {primarySortKey === "duration" &&
+                            (sortPrimaryDirection === "asc" ? <TriangleUpIcon ml={1} /> : <TriangleDownIcon ml={1} />)}
+                        </span>
+                      </Tooltip>
                     </Th>
-                    <Th onClick={() => handleSort("status")} cursor="pointer" p={1}>
-                      Status{" "}
-                      {primarySortKey === "status" &&
-                        (sortPrimaryDirection === "asc" ? (
-                          <TriangleUpIcon ml={1} />
-                        ) : (
-                          <TriangleDownIcon ml={1} />
-                        ))}
+                    <Th p={1}>
+                      <Tooltip label="Current Status" hasArrow>
+                        <span onClick={() => handleSort("status")} style={{ cursor: "pointer" }}>
+                          Status{" "}
+                          {primarySortKey === "status" &&
+                            (sortPrimaryDirection === "asc" ? <TriangleUpIcon ml={1} /> : <TriangleDownIcon ml={1} />)}
+                        </span>
+                      </Tooltip>
                     </Th>
-                    {/* Actions column now right aligned */}
                     <Th p={1} textAlign="right" pr={4}>
                       Actions
                     </Th>
@@ -644,23 +575,17 @@ const SubscriptionManagement = () => {
                   ) : (
                     paginatedSubscriptions.map((sub) => (
                       <Tr key={sub.id}>
-                        <Td p={0}>
+                        <Td p={1}>
                           <Checkbox
                             size="sm"
-                            m={0}
-                            p={0}
                             isChecked={selectedSubscriptions.includes(sub.id)}
                             onChange={() => handleSelectOne(sub.id)}
                           />
                         </Td>
                         <Td p={1}>{sub.name}</Td>
                         <Td p={1}>${sub.price}</Td>
-                        <Td p={1} textTransform="capitalize">
-                          {sub.duration}
-                        </Td>
-                        <Td p={1} textTransform="capitalize">
-                          {sub.status}
-                        </Td>
+                        <Td p={1} textTransform="capitalize">{sub.duration}</Td>
+                        <Td p={1} textTransform="capitalize">{sub.status}</Td>
                         <Td p={1} textAlign="right" pr={4}>
                           <IconButton
                             aria-label="View Details"
@@ -693,26 +618,34 @@ const SubscriptionManagement = () => {
                 </Tbody>
               </Table>
             </TableContainer>
-            <Flex mt={4} justify="space-between" align="center">
-              <Button
-                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-                disabled={currentPage === 1}
-              >
+            {/* Pagination with Jump-to-Page Input */}
+            <Flex mt={4} justify="space-between" align="center" flexWrap="nowrap">
+              <Button onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))} disabled={currentPage === 1}>
                 Previous
               </Button>
-              <Text>
+              <ChakraText>
                 Page {currentPage} of {totalPages || 1}
-              </Text>
-              <Button
-                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
-                disabled={currentPage === totalPages || totalPages === 0}
-              >
+              </ChakraText>
+              <Button onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))} disabled={currentPage === totalPages || totalPages === 0}>
                 Next
               </Button>
+              <Flex align="center" gap={2}>
+                <ChakraText>Jump to Page:</ChakraText>
+                <Input
+                  type="number"
+                  size="sm"
+                  maxW="60px"
+                  onChange={(e) => {
+                    let page = Number(e.target.value);
+                    if (page > 0 && page <= totalPages) setCurrentPage(page);
+                  }}
+                />
+              </Flex>
             </Flex>
           </>
         )}
 
+        {/* ------------------- Modals and Dialogs ------------------- */}
         {/* Subscription Form Modal for Add/Edit */}
         {isModalOpen && (
           <SubscriptionFormModal
@@ -731,14 +664,8 @@ const SubscriptionManagement = () => {
             }}
           />
         )}
-
         {/* AlertDialog for Single Deletion */}
-        <AlertDialog
-          isOpen={deleteAlertOpen}
-          leastDestructiveRef={deleteCancelRef}
-          onClose={closeDeleteDialog}
-          isCentered
-        >
+        <AlertDialog isOpen={deleteAlertOpen} leastDestructiveRef={deleteCancelRef} onClose={closeDeleteDialog} isCentered>
           <AlertDialogOverlay>
             <AlertDialogContent>
               <AlertDialogHeader fontSize="lg" fontWeight="bold">
@@ -760,14 +687,8 @@ const SubscriptionManagement = () => {
             </AlertDialogContent>
           </AlertDialogOverlay>
         </AlertDialog>
-
         {/* AlertDialog for Bulk Deletion */}
-        <AlertDialog
-          isOpen={bulkDeleteAlertOpen}
-          leastDestructiveRef={bulkDeleteCancelRef}
-          onClose={closeBulkDeleteDialog}
-          isCentered
-        >
+        <AlertDialog isOpen={bulkDeleteAlertOpen} leastDestructiveRef={bulkDeleteCancelRef} onClose={closeBulkDeleteDialog} isCentered>
           <AlertDialogOverlay>
             <AlertDialogContent>
               <AlertDialogHeader fontSize="lg" fontWeight="bold">
@@ -787,7 +708,6 @@ const SubscriptionManagement = () => {
             </AlertDialogContent>
           </AlertDialogOverlay>
         </AlertDialog>
-
         {/* Bulk Edit Modal */}
         {isBulkEditModalOpen && (
           <Modal isOpen={isBulkEditModalOpen} onClose={closeBulkEditModal} isCentered>
@@ -846,7 +766,6 @@ const SubscriptionManagement = () => {
             </ModalContent>
           </Modal>
         )}
-
         {/* Detail View Modal */}
         {isDetailModalOpen && (
           <SubscriptionDetailModal
@@ -857,80 +776,6 @@ const SubscriptionManagement = () => {
         )}
       </Box>
     </AdminLayout>
-  );
-};
-
-// --- SubscriptionAnalytics Component ---
-// This component aggregates subscription data and renders summary charts.
-const SubscriptionAnalytics = ({ subscriptions }) => {
-  // Group by plan (using subscription.name as plan type if no explicit plan provided)
-  const planCount = subscriptions.reduce((acc, sub) => {
-    const plan = sub.plan || sub.name;
-    acc[plan] = (acc[plan] || 0) + 1;
-    return acc;
-  }, {});
-  const planData = Object.entries(planCount).map(([plan, count]) => ({ plan, count }));
-
-  // Sum revenue by plan
-  const revenueByPlan = subscriptions.reduce((acc, sub) => {
-    const plan = sub.plan || sub.name;
-    acc[plan] = (acc[plan] || 0) + Number(sub.price);
-    return acc;
-  }, {});
-  const revenueData = Object.entries(revenueByPlan).map(([plan, revenue]) => ({ plan, revenue }));
-
-  // Count upcoming renewals: renewalDate exists and within next 30 days
-  const now = new Date();
-  const upcomingRenewals = subscriptions.filter((sub) => {
-    if (!sub.renewalDate) return false;
-    const renewalDate = new Date(sub.renewalDate);
-    const diffDays = (renewalDate - now) / (1000 * 60 * 60 * 24);
-    return diffDays >= 0 && diffDays <= 30;
-  }).length;
-
-  return (
-    <Box>
-      <Flex mb={4} justify="space-between">
-        <Box>
-          <Text fontSize="lg" fontWeight="bold">
-            Upcoming Renewals
-          </Text>
-          <Text fontSize="2xl" color="blue.600">
-            {upcomingRenewals}
-          </Text>
-        </Box>
-      </Flex>
-      <Flex direction={{ base: "column", md: "row" }} gap={6}>
-        <Box flex={1} height={250}>
-          <Text fontSize="md" mb={2} textAlign="center" fontWeight="semibold">
-            Subscriptions per Plan
-          </Text>
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={planData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="plan" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="count" fill="#3182ce" />
-            </BarChart>
-          </ResponsiveContainer>
-        </Box>
-        <Box flex={1} height={250}>
-          <Text fontSize="md" mb={2} textAlign="center" fontWeight="semibold">
-            Revenue per Plan ($)
-          </Text>
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={revenueData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="plan" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="revenue" fill="#2f855a" />
-            </BarChart>
-          </ResponsiveContainer>
-        </Box>
-      </Flex>
-    </Box>
   );
 };
 
