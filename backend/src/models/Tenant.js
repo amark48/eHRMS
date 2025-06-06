@@ -1,4 +1,5 @@
 // models/Tenant.js
+
 module.exports = (sequelize, DataTypes) => {
   const Tenant = sequelize.define(
     'Tenant',
@@ -8,6 +9,7 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true,
       },
+      // This field stores the company name.
       name: {
         type: DataTypes.STRING,
         allowNull: false,
@@ -73,6 +75,12 @@ module.exports = (sequelize, DataTypes) => {
       themeColor: {
         type: DataTypes.STRING,
       },
+      // New field storing the employee count range.
+      employeeCount: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        comment: "Employee count range for the tenant (e.g., '1 - 10 employees', '11 - 50 employees', etc.)"
+      }
     },
     {
       tableName: 'Tenants',
@@ -81,12 +89,12 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   Tenant.associate = function (models) {
-    // Associate Tenant with Subscription (if applicable)
+    // Associate Tenant with Subscription.
     Tenant.belongsTo(models.Subscription, {
       foreignKey: 'subscriptionId',
       as: 'subscription',
     });
-    // Association with User will be set up later in models/index.js
+    // Additional associations (e.g., with User) can be defined elsewhere.
   };
 
   return Tenant;

@@ -11,6 +11,8 @@ const {
   updateUserStatus,
   updateUser,
   deleteUser,
+  register,      // public registration handler
+  verifyOTP      // OTP verification handler added here
 } = require("../controllers/userController");
 
 const { protect, adminOnly } = require("../middleware/authMiddleware");
@@ -22,7 +24,31 @@ router.use((req, res, next) => {
   next();
 });
 
-// 🔹 User Profile (self) routes
+/*────────────────────────────
+  Public Routes
+────────────────────────────*/
+
+// Registration route (public – no token required)
+router.post(
+  "/register",
+  (req, res, next) => {
+    console.log("[DEBUG] No Token Required POST /register called");
+    next();
+  },
+  register
+);
+
+// OTP Verification Route (public)
+router.post(
+  "/verify-otp",
+  verifyOTP
+);
+
+/*────────────────────────────
+  Protected Routes (require authentication and appropriate roles)
+────────────────────────────*/
+
+// User Profile Routes
 router.get(
   "/profile",
   protect,
@@ -44,7 +70,7 @@ router.put(
   updateUserProfile
 );
 
-// 🔹 Fetch Users & Roles
+// Fetch Users & Roles
 router.get(
   "/",
   protect,
@@ -65,7 +91,7 @@ router.get(
   getRoles
 );
 
-// 🔹 Create & Update Users (Admin/SuperAdmin)
+// Create & Update Users (Admin/SuperAdmin)
 router.post(
   "/",
   protect,
@@ -82,7 +108,7 @@ router.put(
   "/:id",
   protect,
   adminOnly,
-  upload.single("avatar"),  // attached for update
+  upload.single("avatar"),
   (req, res, next) => {
     console.log(`[DEBUG] PUT /${req.params.id} (update user) called`);
     next();
@@ -90,7 +116,7 @@ router.put(
   updateUser
 );
 
-// 🔹 Update User Status (enable/disable)
+// Update User Status (enable/disable)
 router.put(
   "/:id/status",
   protect,
@@ -102,16 +128,16 @@ router.put(
   updateUserStatus
 );
 
-// DELETE /api/users/:id
+// DELETE User Route
 router.delete(
-  "/:id", 
+  "/:id",
   protect,
   adminOnly,
-    (req, res, next) => {
-    console.log(`[DEBUG] PUT /${req.params.id}/delete (delete user) called`);
+  (req, res, next) => {
+    console.log(`[DEBUG] DELETE /${req.params.id} (delete user) called`);
     next();
   },
   deleteUser
-); 
+);
 
 module.exports = router;

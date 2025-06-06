@@ -2,12 +2,25 @@ const jwt = require("jsonwebtoken");
 const asyncHandler = require("express-async-handler");
 const { User, Role } = require("../models");
 
-
 // Middleware to protect routes – verifies JWT token and retrieves user data
 const protect = asyncHandler(async (req, res, next) => {
+  // Normalize the URL (remove query parameters and trailing slashes)
+  const normalizedUrl = req.originalUrl.split('?')[0].replace(/\/+$/, "");
+  const publicEndpoints = ["/api/register", "/api/login"];
+
+  if (publicEndpoints.includes(normalizedUrl)) {
+    console.log(
+      `[DEBUG protect] Bypassing token validation for public endpoint: ${normalizedUrl}`
+    );
+    return next();
+  }
+
   let token;
 
-  if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
+  if (
+    req.headers.authorization &&
+    req.headers.authorization.startsWith("Bearer")
+  ) {
     try {
       token = req.headers.authorization.split(" ")[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
@@ -40,32 +53,44 @@ const authorizeRoles = (...roles) => {
   return (req, res, next) => {
     console.log("[DEBUG authorizeRoles] Checking roles for user.");
     if (!req.user) {
-      console.error("[ERROR authorizeRoles] No user found in request, role verification aborted.");
-      res.status(403).json({ message: "You do not have permission to perform this action" });
-      return;
+      console.error(
+        "[ERROR authorizeRoles] No user found in request, role verification aborted."
+      );
+      return res
+        .status(403)
+        .json({ message: "You do not have permission to perform this action" });
     }
 
     console.log("[DEBUG authorizeRoles] User role:", req.user.role);
     if (!roles.includes(req.user.role)) {
-      console.error(`[ERROR authorizeRoles] Role '${req.user.role}' is not authorized. Required roles: ${roles.join(", ")}`);
-      res.status(403).json({ message: "You do not have permission to perform this action" });
-      return;
+      console.error(
+        `[ERROR authorizeRoles] Role '${req.user.role}' is not authorized. Required roles: ${roles.join(
+          ", "
+        )}`
+      );
+      return res
+        .status(403)
+        .json({ message: "You do not have permission to perform this action" });
     }
 
-    console.log("[DEBUG authorizeRoles] Role check passed for:", req.user.role);
+    console.log(
+      "[DEBUG authorizeRoles] Role check passed for:",
+      req.user.role
+    );
     next();
   };
 };
 
-// Middleware to restrict access to admin users
-// Middleware to restrict access based on role & tenant isolation
+// Middleware to restrict access based on role & tenant isolation (Admin and SuperAdmin)
 const adminOnly = asyncHandler(async (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ message: "Not authorized" });
   }
 
   // Fetch the requesting user's role and tenant
-  const user = await User.findByPk(req.user.id, { include: [{ model: Role, as: "role" }] });
+  const user = await User.findByPk(req.user.id, {
+    include: [{ model: Role, as: "role" }],
+  });
 
   if (!user) {
     return res.status(404).json({ message: "User not found" });
@@ -80,7 +105,7 @@ const adminOnly = asyncHandler(async (req, res, next) => {
   } else if (user.role?.name === "Admin") {
     // 🔒 Enforce tenant isolation for Admins
     const targetUser = await User.findByPk(req.params.id);
-    
+
     if (!targetUser) {
       return res.status(404).json({ message: "Target user not found" });
     }
@@ -91,15 +116,22 @@ const adminOnly = asyncHandler(async (req, res, next) => {
       // ✅ Admin can modify users within their own tenant
       next();
     } else {
-      console.error("[ERROR adminOnly] Tenant isolation violation - Admin tried modifying another tenant.");
-      return res.status(403).json({ message: "Admins can only modify users within their assigned tenant." });
+      console.error(
+        "[ERROR adminOnly] Tenant isolation violation - Admin tried modifying another tenant."
+      );
+      return res.status(403).json({
+        message:
+          "Admins can only modify users within their assigned tenant.",
+      });
     }
   } else {
-    console.error("[ERROR adminOnly] Access denied - Only Admins and SuperAdmins allowed.");
-    return res.status(403).json({ message: "Access restricted to Admins and SuperAdmins only." });
+    console.error(
+      "[ERROR adminOnly] Access denied - Only Admins and SuperAdmins allowed."
+    );
+    return res
+      .status(403)
+      .json({ message: "Access restricted to Admins and SuperAdmins only." });
   }
 });
-
-
 
 module.exports = { protect, authorizeRoles, adminOnly };

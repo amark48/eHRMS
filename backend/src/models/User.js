@@ -86,6 +86,16 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: true,
       },
+      onboardingCompleted: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
+      isCorporateEmailVerified: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+        comment: "Flag indicating if the corporate email has been verified.",
+      },
       createdAt: {
         type: DataTypes.DATE,
         allowNull: false,

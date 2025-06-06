@@ -14,6 +14,9 @@ const uploadRoutes = require("./src/routes/uploadRoutes");
 const avatarUploadRoutes = require("./src/routes/avatarUploadRoutes");
 const billingRoutes = require("./src/routes/billingRoutes");
 
+// Import registration controller (for public user registration)
+const { register } = require("./src/controllers/userController");
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -25,17 +28,16 @@ console.log("[DEBUG] Loaded Routes:", {
   roleRoutes,
   subscriptionRoutes,
   uploadRoutes,
-  billingRoutes
+  billingRoutes,
 });
 
-// Enable CORS with multiple origins
+// Enable CORS with multiple origins.
 app.use(
   cors({
     origin: ["http://localhost:4000", "http://localhost:3000"],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
   })
 );
-
 
 // Middleware to parse JSON and URL-encoded requests.
 app.use(express.json());
@@ -57,12 +59,15 @@ app.get("/", (req, res) => res.send("HRMS SaaS API is running..."));
 app.use("/api/tenants", tenantRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
+
+// Define public registration route; note that we no longer mount userRoutes on "/api/register".
+app.post("/api/register", register);
+
 app.use("/api/roles", roleRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
 app.use("/api/upload", uploadRoutes);
 // For avatar uploads, mount under "/upload-avatar".
 app.use("/upload-avatar", avatarUploadRoutes);
-
 app.use("/api/billings", billingRoutes);
 
 // Handle unmatched routes.
