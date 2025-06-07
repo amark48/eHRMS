@@ -10,7 +10,8 @@ const {
   createTenant,
   updateTenant,
   deleteTenant,
-  toggleTenantStatus
+  toggleTenantStatus,
+  addAddress
 } = require("../controllers/tenantController.jsx");
 
 // Existing endpoints
@@ -40,5 +41,8 @@ router.delete("/:id", deleteTenant);
 
 // PATCH /api/tenants/:id/toggle - Toggle a tenant's active status.
 router.patch("/:id/toggle", toggleTenantStatus);
+
+// POST /tenants/:id/addresses - Add Address
+router.post("/:id/address", addAddress);
 
 module.exports = router;

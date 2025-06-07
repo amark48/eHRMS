@@ -13,6 +13,7 @@ const subscriptionRoutes = require("./src/routes/subscriptionRoutes");
 const uploadRoutes = require("./src/routes/uploadRoutes");
 const avatarUploadRoutes = require("./src/routes/avatarUploadRoutes");
 const billingRoutes = require("./src/routes/billingRoutes");
+const onboardingRoutes = require("./src/routes/onboardingRoutes");
 
 // Import registration controller (for public user registration)
 const { register } = require("./src/controllers/userController");
@@ -29,6 +30,7 @@ console.log("[DEBUG] Loaded Routes:", {
   subscriptionRoutes,
   uploadRoutes,
   billingRoutes,
+  onboardingRoutes,
 });
 
 // Enable CORS with multiple origins.
@@ -69,6 +71,8 @@ app.use("/api/upload", uploadRoutes);
 // For avatar uploads, mount under "/upload-avatar".
 app.use("/upload-avatar", avatarUploadRoutes);
 app.use("/api/billings", billingRoutes);
+
+app.use("/api/onboarding", onboardingRoutes); 
 
 // Handle unmatched routes.
 app.use((req, res, next) => {

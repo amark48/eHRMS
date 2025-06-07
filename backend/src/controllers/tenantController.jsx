@@ -6,7 +6,7 @@ const db = require("../models");
 // Debugging: list the available keys so you can verify Tenant is present.
 console.log("[DEBUG] Available models:", Object.keys(db));
 
-const Tenant = db.Tenant;
+const { Tenant, Address } = require('../models');
 
 if (!Tenant || typeof Tenant.findAll !== "function") {
   console.error("[ERROR] Tenant model is not properly instantiated. Check your models/index.js file.");
@@ -131,34 +131,39 @@ const getTenantById = async (req, res) => {
   }
 };
 
-// POST /api/tenants - Create a new tenant.
+// POST /api/tenants - Create a new tenant and optionally add a mailing address.
 const createTenant = async (req, res) => {
   try {
-    console.log("Incoming create tenant request body:", req.body);
+    console.log("Incoming createTenant request body:", req.body);
 
-    // Destructure the expected fields from the request body.
+    // Destructure tenant and mailing address fields.
     const {
+      // Tenant fields:
       name,
       domain,
       industry,
       subscriptionTier,
       logoUrl,
       companyWebsite,
-      billingStreet,
-      billingCity,
-      billingState,
-      billingZip,
-      billingCountry,
-      billingPhone,
       mfaEnabled,
       allowedMfa,
+      // Mailing address fields (from frontend):
+      mailingStreet,
+      mailingCity,
+      mailingState,
+      mailingZip,
+      mailingCountry,
+      mailingPhone,
     } = req.body;
 
-    console.log("MFA values received - mfaEnabled:", mfaEnabled, "allowedMfa:", allowedMfa);
-
+    console.log("Tenant data:", { name, domain, industry, subscriptionTier, logoUrl, companyWebsite });
+    console.log("MFA values:", { mfaEnabled, allowedMfa });
+    
+    // Process allowed MFA.
     const mfaArray = Array.isArray(allowedMfa) ? allowedMfa : [];
     console.log("Processed allowed MFA:", mfaArray);
 
+    // Create the tenant record.
     const tenant = await Tenant.create({
       name,
       domain,
@@ -166,23 +171,122 @@ const createTenant = async (req, res) => {
       subscriptionTier,
       logoUrl,
       companyWebsite,
-      billingStreet,
-      billingCity,
-      billingState,
-      billingZip,
-      billingCountry,
-      billingPhone,
-      mfaEnabled: mfaEnabled,
+      mfaEnabled,
       allowedMfa: mfaArray,
     });
 
-    console.log("Tenant successfully created:", tenant);
+    console.log("Tenant successfully created:", tenant.toJSON());
+    
+    // Log the mailing address fields received.
+    console.log("Mailing address fields received:", {
+      mailingStreet,
+      mailingCity,
+      mailingState,
+      mailingZip,
+      mailingCountry,
+      mailingPhone,
+    });
+    
+    // If any mailing address fields are present, check for missing fields.
+    if (
+      mailingStreet ||
+      mailingCity ||
+      mailingState ||
+      mailingZip ||
+      mailingCountry ||
+      mailingPhone
+    ) {
+      // List which fields are missing that we consider required.
+      let missingFields = [];
+      if (!mailingStreet) missingFields.push("mailingStreet");
+      if (!mailingCity) missingFields.push("mailingCity");
+      if (!mailingState) missingFields.push("mailingState");
+      if (!mailingZip) missingFields.push("mailingZip");
+      if (!mailingCountry) missingFields.push("mailingCountry");
+      
+      if (missingFields.length > 0) {
+        console.warn(
+          `Warning: Partial mailing address detected. Missing fields: ${missingFields.join(", ")}`
+        );
+      } else {
+        console.log("All required mailing address fields received.");
+      }
+      
+      // Create the mailing address record.
+      const address = await Address.create({
+        tenantId: tenant.id,
+        addressType: "mailing",
+        street: mailingStreet,
+        city: mailingCity,
+        state: mailingState,
+        zip: mailingZip,
+        country: mailingCountry,
+        phone: mailingPhone,
+      });
+      
+      console.log("Mailing address successfully created:", address.toJSON());
+    } else {
+      console.log("No mailing address provided in the request.");
+    }
+    
     res.status(201).json(tenant);
   } catch (error) {
     console.error("Error creating tenant:", error);
     res.status(500).json({ error: error.message });
   }
 };
+
+// POST /api/tenants/address - Add an address record to an existing tenant.
+const addAddress = async (req, res) => {
+  try {
+    console.log("Incoming addAddress request body:", req.body);
+
+    // Destructure fields from request.
+    const { tenantId, addressType, street, city, state, zip, country, phone } = req.body;
+
+    // Verify that the tenant exists.
+    const tenant = await Tenant.findByPk(tenantId);
+    if (!tenant) {
+      console.warn("Tenant not found for tenantId:", tenantId);
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+
+    // Check for missing fields.
+    let missingFields = [];
+    if (!street) missingFields.push("street");
+    if (!city) missingFields.push("city");
+    if (!state) missingFields.push("state");
+    if (!zip) missingFields.push("zip");
+    if (!country) missingFields.push("country");
+
+    if (missingFields.length > 0) {
+      console.warn(
+        `Warning: Missing required address fields for ${addressType} address: ${missingFields.join(", ")}`
+      );
+    } else {
+      console.log(`${addressType} address will be created with complete information.`);
+    }
+
+    // Create the Address record.
+    const address = await Address.create({
+      tenantId,
+      addressType, // e.g., 'billing', 'mailing', 'shipping'
+      street,
+      city,
+      state,
+      zip,
+      country,
+      phone,
+    });
+
+    console.log("Address successfully created:", address.toJSON());
+    res.status(201).json(address);
+  } catch (error) {
+    console.error("Error adding address:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 
 // PUT /api/tenants/:id - Update an existing tenant.
 const updateTenant = async (req, res) => {
@@ -258,4 +362,5 @@ module.exports = {
   updateTenant,
   deleteTenant,
   toggleTenantStatus,
+  addAddress
 };

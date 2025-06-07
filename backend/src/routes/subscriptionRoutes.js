@@ -27,7 +27,7 @@ console.log("[DEBUG] subscriptionRoutes.js - Imported Middleware:", {
 // GET /api/subscriptions - Fetch all subscriptions (protected)
 router.get(
   "/",
-  protect,
+ 
   async (req, res, next) => {
     console.log("[DEBUG] GET /api/subscriptions triggered");
     console.log("[DEBUG] Query parameters:", req.query);

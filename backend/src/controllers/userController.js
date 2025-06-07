@@ -7,7 +7,7 @@ const fs = require("fs");
 const path = require("path");
 
 // Pull all models from your central index.
-const { User, Tenant, Role } = require("../models");
+const { User, Tenant, Role, Address } = require("../models");
 
 // Optionally import sequelize and QueryTypes if needed.
 const { sequelize } = require("../config/db");
@@ -447,10 +447,22 @@ const register = asyncHandler(async (req, res) => {
 
   // Destructure required fields from the request body.
   // Note: The field "company" corresponds to Tenant.name.
-  const { firstName, lastName, email, company, domain, industry, employeeCount, phoneNumber, isTenantAdmin } = req.body;
+  // Also expect mailing address fields: mailingCountry and mailingPhone.
+  const {
+    firstName,
+    lastName,
+    email,
+    company,
+    domain,
+    industry,
+    employeeCount,
+    isTenantAdmin,
+    mailingCountry,
+    mailingPhone
+  } = req.body;
 
-  // Validate that all required fields are provided.
-  if (!firstName || !lastName || !email || !company || !domain || !employeeCount || !phoneNumber || !isTenantAdmin) {
+  // Validate that all required tenant fields are provided.
+  if (!firstName || !lastName || !email || !company || !domain || !employeeCount || !mailingPhone || !isTenantAdmin) {
     return res.status(400).json({
       message:
         "Missing required fields. Please provide firstName, lastName, email, company, domain, employeeCount, and phoneNumber.",
@@ -463,24 +475,62 @@ const register = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "A tenant with this corporate email already exists." });
   }
 
-  // Also check if a tenant already exists with this domain.
+  // Check if a tenant already exists with this domain.
   const existingTenantByDomain = await Tenant.findOne({ where: { domain: domain } });
   if (existingTenantByDomain) {
     return res.status(400).json({ message: "A tenant with this domain already exists." });
   }
 
   // Create a new Tenant.
-  // Save the company name in the "name" field and the provided phoneNumber in billingPhone.
+  // Note: We are no longer storing the billing phone on the Tenant object.
   const tenant = await Tenant.create({
     name: company,
     adminEmail: email,
     domain: domain,
     industry: industry || "other",
     employeeCount: employeeCount,
-    billingPhone: phoneNumber,
+    // billingPhone is removed from here.
     isTenantAdmin: isTenantAdmin,
     isActive: true,
   });
+
+  console.log("[DEBUG] Tenant successfully created:", tenant.toJSON());
+
+  // Debug: log mailing address fields that were sent.
+  console.log("[DEBUG] Mailing address fields received:", {
+    mailingCountry,
+    mailingPhone,
+  });
+
+  // If any mailing address fields are provided, log a warning if required fields are missing.
+  if (mailingCountry || mailingPhone) {
+    // In this example, we expect both mailingCountry and mailingPhone.
+    let missingFields = [];
+    if (!mailingCountry) missingFields.push("mailingCountry");
+    if (!mailingPhone) missingFields.push("mailingPhone");
+    if (missingFields.length > 0) {
+      console.warn(`[DEBUG] Partial mailing address detected. Missing fields: ${missingFields.join(", ")}`);
+    } else {
+      console.log("[DEBUG] All required mailing address fields received.");
+    }
+
+    // Create an Address record for the mailing address.
+    // Since the frontend sends only mailingCountry and mailingPhone,
+    // we’ll store empty strings for the missing address components.
+    const address = await Address.create({
+      tenantId: tenant.id,
+      addressType: "mailing",
+      street: "",     // Frontend did not send
+      city: "",       // Frontend did not send
+      state: "",      // Frontend did not send
+      zip: "",        // Frontend did not send
+      country: mailingCountry || "",
+      phone: mailingPhone || "",
+    });
+    console.log("[DEBUG] Mailing address successfully created:", address.toJSON());
+  } else {
+    console.log("[DEBUG] No mailing address provided in the request.");
+  }
 
   // Retrieve the Admin role (a row with name "Admin" must exist).
   const adminRole = await Role.findOne({ where: { name: "Admin" } });
@@ -504,7 +554,7 @@ const register = asyncHandler(async (req, res) => {
   // Hash the auto-generated password.
   const hashedPassword = await bcrypt.hash(autoPassword, 10);
 
-  // Create the new user with the hashed password.
+  // Create the new admin user.
   const newUser = await User.create(
     {
       firstName,
@@ -516,7 +566,7 @@ const register = asyncHandler(async (req, res) => {
       isTenantAdmin: isTenantAdmin,
     },
     {
-      fields: ["firstName", "lastName", "email", "password", "roleId", "tenantId","isTenantAdmin"],
+      fields: ["firstName", "lastName", "email", "password", "roleId", "tenantId", "isTenantAdmin"],
     }
   );
 
@@ -531,8 +581,20 @@ const register = asyncHandler(async (req, res) => {
 
   return res.status(201).json({
     message: "Registration successful. Please verify the OTP sent to your corporate email.",
-    tenant: { id: tenant.id, name: tenant.name, adminEmail: tenant.adminEmail, domain: tenant.domain },
-    user: { id: newUser.id, firstName: newUser.firstName, lastName: newUser.lastName, email: newUser.email, tenantId: newUser.tenantId, isTenantAdmin: newUser.isTenantAdmin },
+    tenant: {
+      id: tenant.id,
+      name: tenant.name,
+      adminEmail: tenant.adminEmail,
+      domain: tenant.domain,
+    },
+    user: {
+      id: newUser.id,
+      firstName: newUser.firstName,
+      lastName: newUser.lastName,
+      email: newUser.email,
+      tenantId: newUser.tenantId,
+      isTenantAdmin: newUser.isTenantAdmin,
+    },
   });
 });
 

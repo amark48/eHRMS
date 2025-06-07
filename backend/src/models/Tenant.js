@@ -9,7 +9,7 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true,
       },
-      // This field stores the company name.
+      // Company name remains.
       name: {
         type: DataTypes.STRING,
         allowNull: false,
@@ -37,24 +37,7 @@ module.exports = (sequelize, DataTypes) => {
       companyWebsite: {
         type: DataTypes.STRING,
       },
-      billingStreet: {
-        type: DataTypes.STRING,
-      },
-      billingCity: {
-        type: DataTypes.STRING,
-      },
-      billingState: {
-        type: DataTypes.STRING,
-      },
-      billingZip: {
-        type: DataTypes.STRING,
-      },
-      billingCountry: {
-        type: DataTypes.STRING,
-      },
-      billingPhone: {
-        type: DataTypes.STRING,
-      },
+      // Billing address fields removed here.
       mfaEnabled: {
         type: DataTypes.BOOLEAN,
         defaultValue: false,
@@ -75,11 +58,10 @@ module.exports = (sequelize, DataTypes) => {
       themeColor: {
         type: DataTypes.STRING,
       },
-      // New field storing the employee count range.
       employeeCount: {
         type: DataTypes.STRING,
         allowNull: true,
-        comment: "Employee count range for the tenant (e.g., '1 - 10 employees', '11 - 50 employees', etc.)"
+        comment: "Employee count range (e.g., '1 - 10 employees', etc.)",
       }
     },
     {
@@ -94,7 +76,11 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'subscriptionId',
       as: 'subscription',
     });
-    // Additional associations (e.g., with User) can be defined elsewhere.
+    // New association: Tenant has many addresses.
+    Tenant.hasMany(models.Address, {
+      foreignKey: 'tenantId',
+      as: 'addresses',
+    });
   };
 
   return Tenant;
