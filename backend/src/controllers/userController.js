@@ -579,6 +579,41 @@ const verifyOTP = asyncHandler(async (req, res) => {
 });
 
 
+// --- Helper Function: Generate a 6-digit OTP ---
+const generateOTP = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+// --- New Controller Method: Resend OTP ---
+const resendOTP = asyncHandler(async (req, res) => {
+  const { userId } = req.body;
+
+  if (!userId) {
+    res.status(400);
+    throw new Error("User id is required.");
+  }
+
+  const user = await User.findByPk(userId);
+  if (!user) {
+    res.status(404);
+    throw new Error("User not found.");
+  }
+
+  // Generate a new OTP and set an expiration (e.g., 10 minutes from now)
+  const otp = generateOTP();
+  const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes in the future
+
+  user.otp = otp;
+  user.otpExpires = otpExpires;
+
+  await user.save();
+
+  console.log(`[DEBUG] Generated OTP for ${user.email}: ${otp}`);
+
+  // Optionally: Send the OTP to the user's email here.
+  res.json({ message: "OTP resent successfully." });
+});
+
 // -----------------------------------------------------------------------------
 // DELETE /api/users/:id - Delete a user.
 const deleteUser = asyncHandler(async (req, res) => {
@@ -799,4 +834,6 @@ module.exports = {
   deleteUser,
   updateUserStatus,
   updateUser,
+  generateOTP,
+  resendOTP,
 };

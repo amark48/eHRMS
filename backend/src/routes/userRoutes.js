@@ -11,8 +11,9 @@ const {
   updateUserStatus,
   updateUser,
   deleteUser,
-  register,      // public registration handler
-  verifyOTP      // OTP verification handler added here
+  register,     
+  verifyOTP,      
+  resendOTP 
 } = require("../controllers/userController");
 
 const { protect, adminOnly } = require("../middleware/authMiddleware");
@@ -37,6 +38,9 @@ router.post(
   },
   register
 );
+
+// ---- New: Resend OTP Route (public) ----
+router.post("/resend-otp", resendOTP);
 
 // OTP Verification Route (public)
 router.post(
